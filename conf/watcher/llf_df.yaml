@@ -1,0 +1,13 @@
+QUERY_COMMAND: df
+QUERY_COMMAND_TIMEOUT: 1200
+QUERY_COMMAND_PARAMS: 'threshold /=85,/export/crawlspace=75,/export/crawlspace/cores=75'
+
+FREQUENCY: 86400
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR]
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg  watcherbot yst-crawl-llfs-alerts@yahoo-inc.com (STATE)]

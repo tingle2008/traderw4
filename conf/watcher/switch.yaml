@@ -1,0 +1,27 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/switch.yaml
+QUERY_COMMAND_TIMEOUT: 1200
+
+FREQUENCY: 150
+MAX_THREADS: 10
+MAX_RANGE: 3000
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [WARNING]
+    START: 300
+    REPEAT: 300
+    STOP: 900
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg cluster-ops-pager-1 watcherbot (STATE)]
+  -
+    STATUS: [WARNING]
+    START: 900
+    REPEAT: 300
+    STOP: 1500
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg cluster-ops-pager-2 watcherbot (STATE)]
+  -
+    STATUS: [WARNING]
+    START: 1500
+    REPEAT: 300
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg cluster-ops-pager-3 watcherbot (STATE)]

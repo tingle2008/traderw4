@@ -1,0 +1,179 @@
+#
+# States:
+#
+#   OK:
+#     - all dbs are present and age within threshold
+#
+#   UNKNOWN:
+#     - entire cluster is down (in case of maint)
+#
+#   ERROR/WARNING:
+#     - missing db 
+#     - age exceed threshold
+#
+use Seco::MultipleTcp;
+use YAML::Syck;
+use DateTime;
+use strict;
+
+return sub
+{
+    my ($result,$params,@clusters)=@_;
+
+    return unless @clusters;
+
+    return unless -f $params && @clusters;
+
+    ## load parameters
+
+    my $now = time;
+    my $p = YAML::Syck::LoadFile ($params);
+    my %p;
+
+    for my $c (qw ( MISSING AGE ))
+    { 
+        map { $p{$c}{$_} = t2s ($p->{$c}{$_}) } qw(WARNING ERROR);
+    } 
+
+    my (%hosts, @hosts);
+
+    for my $cluster (@clusters)
+    { 
+        if (my @c = w4Range::expand_range ('%'.$cluster))
+        {
+            push @hosts, @c;
+            $hosts{$cluster} = \@c;
+        }
+        else
+        {
+            $result->{$cluster} = ['WARNING', 'empty cluster' ];
+        }
+    }
+
+    return unless %hosts;
+
+    my %pattern = 
+    (
+        '/se/cluster/lower_dbid'    => qr /=(\d+)/o,
+        '/se/cluster/upper_dbid'    => qr /=(\d+)/o,
+        '/se/database/1/trueprefix' =>
+            qr /=.+?-(\d+)-(\d{4})(\d\d)(\d\d)_(\d\d)(\d\d)/o,
+    );
+
+    my @pattern = sort keys %pattern; 
+    my $cmd = "idp/1.0\nclient:inktomi\n\nEXECTCL\nSeRegGet2 " . 
+        (join ' ', @pattern) . "\n\n\n"; 
+
+    my $mtcp = new Seco::MultipleTcp;
+
+    $mtcp -> global_timeout (0);
+    $mtcp -> sock_timeout (30);
+    $mtcp -> minimum_time (0);
+    $mtcp -> maxflight (100);
+    $mtcp -> writebuf ($cmd);
+    $mtcp -> nodes (@hosts);
+    $mtcp -> port (55555);
+
+    my $r = $mtcp -> run ();
+
+    @hosts = ();
+    my $pattern = '';
+
+    map { $pattern .= $_ . $pattern{$_} . '.+?' } @pattern;
+
+    foreach my $cluster (keys %hosts)
+    {
+        $result->{$cluster} = [ 'OK', 'OK' ];
+
+        my (%dbid, %status);
+        my $latest;
+
+        foreach my $host (@{$hosts{$cluster}})
+        {
+            my $obj = $r->{$host};
+            my $s;
+
+            next if ! defined $obj || $obj->error()
+                || $obj->write_error() || $obj->read_error()
+                || ! ($s = $obj->readbuf()) || $s !~ qr /$pattern/sox;
+  
+            my $age = $now - DateTime -> new
+                (year=>$4, month=>$5, day=>$6, hour=>$7, minute=>$8) -> epoch;
+
+            $latest = $age if ! defined $latest || $age < $latest;
+            %dbid = map { $_ => \$latest } $1 .. $2 unless %dbid;
+
+            my $dbid = $3 + 0;
+
+            if ($p{AGE})
+            { 
+                for my $s ( qw (ERROR WARNING) )
+                {
+                    next unless my $threshold = $p{AGE}{$s};
+                    next if $age < $threshold;
+                    push @{$status{$s}{'AGE > ' . $p->{AGE}{$s}}}, $dbid;
+                    last;
+                }
+            } 
+
+            delete $dbid{$dbid};
+            $obj = (); delete $r->{$host};
+        }
+
+        $result->{$cluster} = [ 'UNKNOWN', 'all nodes appear down' ]
+            unless defined $latest;
+
+        delete $hosts{$cluster};
+
+        if ($p{MISSING})
+        { 
+            for my $dbid (sort keys %dbid)
+            {
+                my $age = ${$dbid{$dbid}};
+
+                for my $s ( qw (ERROR WARNING) )
+                {
+                    next unless my $threshold = $p{MISSING}{$s};
+                    next if $age < $threshold;
+                    push @{$status{$s}{'MISSING > '.$p->{MISSING}{$s}}}, $dbid;
+                    last;
+                }
+            }
+        }
+
+        for my $s ( qw (ERROR WARNING) )
+        {
+            next unless my $status = $status{$s};
+            map { $status->{$_} = w4Range::compress_range
+                (@{$status->{$_}}) } keys %$status;
+            $result->{$cluster} = [$s, YAML::Syck::Dump ($status)];
+            last;
+        }
+    }
+};
+
+sub t2s
+{
+    my $time = shift;
+
+    die "invalid time specification $time\n"
+        unless my @t = $time =~ /^(\d+)\s*(\w+)?/o;
+
+    my %unit = 
+    (
+        w => 604800,
+        d => 86400,
+        h => 3600,
+        m => 60,
+    ); 
+
+    for my $u (keys %unit)
+    {
+        next if $t[1] !~ qr /^$u/;
+        $t[0] *= $unit{$u};
+        last; 
+    } 
+
+    return $t[0]; 
+}
+

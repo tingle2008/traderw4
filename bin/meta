@@ -1,0 +1,157 @@
+#!/usr/local/bin/perl -w
+
+use Seco::sudo;
+
+my $svc_usr = 'root';
+Seco::sudo::become ($svc_usr);
+
+use strict;
+use Seco::AwesomeRange;
+use Getopt::Long;
+
+my $w4_usr = 'watcher';
+
+my $app_root = "/home/$w4_usr";
+my $service = "$app_root/service";
+my $restart = "$app_root/w4/bin/scripts/restart";
+my $sendmail = '/usr/lib/sendmail';
+
+my %o;
+$o{a} = 'auto';
+
+my %e = 
+(
+    20 => 'cluster-ops-pager-1@inktomi.com',
+    30 => 'cluster-ops-pager-1@inktomi.com',
+    40 => 'cluster-ops-pager-2@inktomi.com',
+    50 => 'cluster-ops-pager-2@inktomi.com',
+    60 => 'cluster-ops-pager-3@inktomi.com',
+);
+
+my $policy = '';
+map { $policy .= "$_:$e{$_}|" } sort { $a <=> $b } keys %e;
+chop $policy;
+
+my %a =
+(
+    'auto' => 'restart, alert upon failure',
+    'only' => 'alert only, do not attempt to restart',
+    'paranoid' => 'alert then restart, alert again upon failure',
+);
+
+my $alert = '';
+map { $alert .= " '$_': $a{$_};" } sort keys %a;
+chop $alert;
+
+my %options =
+(
+    "a|alert=s","default behavior '$o{a}'. ($alert )",
+    "e|escalation=s","escalation policy (default '$policy')",
+    "h|help","show help",
+    "x|exclude=s","range of watchers not to monitor",
+    "v|verbose","be verbose",
+);
+
+unless (GetOptions (\%o, keys %options) && !$o{h} && validate_esc ())
+{
+    my $usage = "\nUsage: $0 [ options ] [ watcher .. (default all) ]\n";
+    exit print_options (\%options, "Usage:  $0");
+}
+
+my %argv;
+@ARGV ?
+    map { -f "$service/w4-$_/run" ? $argv{$_} = 1 : warn "$_: no svc\n" } @ARGV:
+    map { $argv{$1} = 1 if $_ =~ /w4-(.+)\/run$/ } glob $service . '/*/run';
+
+map { delete $argv{$_} } Seco::AwesomeRange::expand_range ($o{x}) if $o{x};
+
+exit 0 unless @ARGV = keys %argv;
+
+my %rc = map { _check_svc ($_) } @ARGV;
+exit 2 if keys %rc > 1;
+$rc{1} ? exit 0 : exit 1; 
+
+sub _check_svc 
+{
+    my $watcher = shift;
+    my $log = "$service/w4-$watcher/log/main/current";
+    my @t = sort { $a <=> $b } keys %e;
+
+    my $reason = "$log does not exist";
+    my $email = $e{$t[0]};
+
+    if (-f $log)
+    {
+        my $delta = int ((time - (stat $log)[9]) / 60);
+        my $t = $t[0];
+
+        while (@t)
+        {
+            last if $delta < $t;
+            $email = $e{$t};
+            $t = shift @t;
+        }
+
+        return 1 if @t == keys %e;
+        $reason = "$log inactive for $delta minutes";
+    }
+
+    if ($o{a} ne 'auto')
+    {
+        my $rc = _alert ($email, $watcher, $reason);
+        return $rc if $o{a} eq 'only';
+    }
+
+    my $cmd = "$restart $watcher";
+    warn "$cmd\n" if $o{v}; 
+
+    return _alert ($email, $watcher, "failed to $cmd") if system ($cmd);
+    return 1;
+}
+
+sub _alert
+{
+    my ($email, $watcher, $reason) = @_;
+
+    use Sys::Hostname;
+    my $host = hostname;
+
+    warn "alerting < $email > about '$watcher': $reason\n" if $o{v};
+
+    unless (open (M, "|$sendmail -t"))
+    {
+        warn "cannot fork for $sendmail: $!\n";
+        return 0;
+    }
+
+    print M <<"EOF";
+To: $email
+From: meta\@$host
+Subject: META: $watcher w4 \@ $host
+
+$reason
+EOF
+    close M;
+    return 1;
+}
+
+sub validate_esc
+{
+    return 1 unless defined $o{e};
+
+    $o{e} =~ s/\s//g;
+    %e = ();
+    $e{$1} = $2 while $o{e} =~ /\G(\d+):([^|]+)\|?/g;
+    keys %e ? return 1 : return 0;
+}
+
+sub print_options
+{
+    my ($options, $usage) = @_;
+
+    map { $usage .= sprintf "\n  -%s | --%-10s %s", $1, $2 ? $2 : $1,
+        $options->{$_} if $_ =~ qr /(\w+)(?:\|(\w+))?=?/o } sort keys %$options;
+
+    printf "%s\n\n", $usage;
+    return 0;
+}

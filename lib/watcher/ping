@@ -1,0 +1,242 @@
+#
+# Synopsis:
+#
+#   Ping sweep the target hosts, mark those unpingable as WARNING if no
+#   host on the same switch is pingable, otherwise ERROR. 
+#
+#   For those pingable, issue a command to remote host port or url and
+#   categorize the hosts as ERROR or WARNING if the reponses match the
+#   respective regex patterns.
+#
+#   If there are no ERROR and WARNING regex patterns defined, hosts with
+#   successful completions are categorized as OK.
+#   (i.e. run a command without caring about the output)
+#
+# Input parameters:
+#
+#   (ping test only if not specified)
+#   a YAML config file that contains the following keys:
+#
+#   PING:         number of pings (0 to skip ping test)
+#   TEST:
+#     LINK/QUERY: link portion of the url or a query string
+#     PROTOCOL:   application protocol (only applies to an url, see LINK)
+#     TIMEOUT:    timeout on query
+#     PORT:       application port
+#     GREED:      level (default 0) of report "greediness", where value may be
+#
+#     0: report matched output only
+#     1: report full output only
+#     2: report matched and full output
+#
+use Seco::MultipleTcp;
+use YAML::Syck;
+use strict;
+use LWP;
+
+return sub
+{
+    my ($result,$params,@hosts)=@_;
+
+    return unless @hosts;
+
+    my $p = -f $params ? YAML::Syck::LoadFile ($params) : {};
+    my $count = defined $p->{PING} ? $p->{PING} : 2;
+
+    my %hosts;
+    map { $hosts{$_} = 1; $result->{$_} = [ 'UNKNOWN', 'no pong' ] } @hosts;
+
+    if ($count > 0) 
+    {
+        return unless @hosts = `fping -u -C $count @hosts 2>&1`;
+
+        my %down;
+
+        while (@hosts)
+        {
+            my ($node, $stat) = split / :/, shift @hosts;
+
+            next if $stat !~ /^(?: -)+$/; ## pingable
+
+            delete $hosts{$node};
+
+            if (my ($switch) = `opsdb -r $node --csv switch --noheader`) 
+            {
+                chomp $switch;
+                push @{$down{$switch}}, $node;
+            }
+            else
+            {
+                $result->{$node} = ['UNKNOWN', 'not in opsdb?'];
+            }
+        }
+    
+        for my $switch (keys %down) ## check if switch is down
+        {
+            my @nodes = `opsdb --switch $switch --csv name --noheader`;
+            chomp @nodes;
+                
+            my $stat = `fping -a @nodes` ? [ 'ERROR', 'unpingable' ] :
+                [ 'WARNING', "no pingable nodes on $switch" ]; ## not node error
+    
+            map { $result->{$_} = $stat } @{$down{$switch}};
+            delete $down{$switch};
+        }
+
+        return unless %hosts;
+    }
+
+    @hosts = keys %hosts; 
+
+    unless ($p && defined $p->{TEST})
+    {
+        map { $result->{$_} = [ 'OK', 'OK' ] } @hosts;
+        return;
+    }
+
+    $p->{TEST} = [ $p->{TEST} ] if ref $p->{TEST} ne 'ARRAY';
+
+    for my $t (@{$p->{TEST}})
+    {
+        my $port = $t->{PORT};
+        my $r;
+
+        if (defined $t->{QUERY})
+        {
+            my $mtcp = new Seco::MultipleTcp;
+    
+            $mtcp -> global_timeout ($t->{TIMEOUT} || 0);
+            $mtcp -> writebuf ($t->{QUERY} . "\n");
+            $mtcp -> sock_timeout (30);
+            $mtcp -> minimum_time (0);
+            $mtcp -> maxflight (30);
+            $mtcp -> nodes (@hosts);
+            $mtcp -> port ($port);
+    
+            $r = $mtcp -> run ();
+        }
+    
+        for my $host (@hosts)
+        {
+            my $s;
+    
+            if (defined $t->{QUERY})
+            {
+                my $o = $r->{$host};
+    
+                if (! defined $o || ($s = $o->error())
+                    || ($s = $o->write_error()) || ($s = $o->read_error())
+                    || (! ($s = $o->readbuf()))
+                    && ($s = "port $port not responsive"))
+                {
+                    $result->{$host} = ['UNKNOWN', $s];
+                    delete $hosts{$host};
+                    next;
+                }
+            }
+            else
+            {
+                my $h = $host;
+                $h .= '.inktomisearch.com' if $h !~ /\.com$/;
+                my $url = "http://$h:$port";
+                $url .= '/' . $t->{LINK} if defined $t->{LINK};
+    
+                my $agent = LWP::UserAgent->new;
+                $agent->timeout ($t->{TIMEOUT} || 10);
+                my $request = HTTP::Request->new (GET => $url);
+                my $response = $agent->request ($request);
+    
+                unless ($response->is_success)
+                {
+                    $result->{$host} = ['UNKNOWN', $response->message];
+                    delete $hosts{$host};
+                    next;
+                }
+    
+                $s = $response->content;
+            }
+    
+            $result->{$host} = ['OK', 'OK'];
+    
+            for my $status ('ERROR', 'WARNING')
+            {
+                my (%msg, $msg); 
+    
+                next unless defined $t->{$status};
+    
+                ## deal with different config formats and the "NOT" logic
+    
+                if (ref $t->{$status} eq 'HASH')
+                { 
+                    my $regex;
+                    my $or_not = '_NOT_';
+    
+                    ## _OR_NOT_ logic
+    
+                    if (defined ($regex = $t->{$status}{$or_not}))
+                    {
+                        $regex = [$regex] unless ref $regex;
+    
+                        # simpler times perhaps
+                        # map { $msg = $s unless $msg || $s =~ /$_/i; } @$regex;
+    
+                        for my $r (@$regex)
+                        { 
+                            $r = [$r] unless ref $r;
+                            if ($s !~ /$r->[0]/i || $r->[1] && !eval $r->[1])
+                            {
+                                $msg = $s;
+                                last;
+                            }
+                        }
+                    }
+    
+                    ## FIXME: add _AND_NOT_ (here) if need be
+    
+                    for my $type (keys %{$t->{$status}})
+                    {
+                        next if $type eq $or_not;
+                        $regex = $t->{$status}{$type};
+                        $regex = [$regex] unless ref $regex;
+                        map { $msg{$type}{$1} += 1 while $s =~ /($_)/gis; }
+                            @$regex;
+                    } 
+                }
+                else
+                {
+                    my $regex = $t->{$status};
+                    $regex = [$regex] unless ref $regex;
+                    map { $msg{$1} += 1 while $s =~ /($_)/gis; } @$regex;
+                }
+    
+                ## stringify and record msg
+    
+                $msg = YAML::Syck::Dump \%msg if %msg;
+    
+                if ($msg)
+                {
+                    $result->{$host} = [$status, $msg];
+                    delete $hosts{$host};
+                    last; 
+                } 
+            }
+
+            next if $result->{$host}[0] eq 'OK';
+
+            my $greed = $t->{GREED} || 0;
+
+            delete $hosts{$host};
+ 
+            if ($greed == 2)
+            {
+                $result->{$host}[1] .= $s;
+            }
+            elsif ($greed == 1)
+            {
+                $result->{$host}[1] = $s;
+            }
+        }
+
+        return unless @hosts = keys %hosts;
+    }
+}

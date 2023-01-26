@@ -1,0 +1,15 @@
+QUERY_COMMAND: simon
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/simon_spell.yaml
+QUERY_COMMAND_TIMEOUT: 60
+
+FREQUENCY: 120
+MAX_THREADS: 1
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR]
+    START: 600
+    REPEAT: 1200
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg mls-ops-notification@yahoo-inc.com (STATE)]

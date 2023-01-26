@@ -1,0 +1,126 @@
+#!/usr/bin/perl -w
+
+use strict;
+use Getopt::Long qw(:config no_ignore_case);
+
+#
+# usage
+#
+
+my %o;
+$o{t} = 'matchany=^(?:idpproxy|dest)-yahoo[a-z]*\d+\.idp\.inktomisearch\.com$';
+$o{r} = '%%all:cache';
+$o{a} = 'cluster-ops-pager-3';
+$o{d} = '.cluster.inktomisearch.com';
+
+my %options =
+(
+    'h|help'        => 'show help',
+    'a|address=s'   => "alert address (default '$o{a}')",
+    'r|range=s'     => "range (default '$o{r}')",
+    't|tiers=s'     => "tiers to check (default '$o{t}')",
+    'd|domain=s'    => "default domain of load destination (default '$o{d}')",
+    'q|quiet'       => 'non verbose/no output',
+    'n|dry-run'     => 'do not send email (for debugging)',
+);
+
+if (!GetOptions (\%o, keys %options) || $o{h})
+{
+    my $usage = "\nUsage:  $0\n";
+
+    _print_opt (\%options, $usage);
+    exit 0;
+}
+
+my (%t, @t, $t, $error);
+
+$t{$1} = defined $2 ? $2 : '.'
+    while ($o{t} =~ /\G\s*([^\s,=]+)\s*(?:=\s*([^\s,]+))?\s*,?/g);
+
+@t = sort keys %t;
+
+for $t (@t)
+{ 
+    my $cmd = "/home/seco/releases/bin/proxyctl -r $o{r} -t $t";
+
+    open FH, "$cmd|" or die $!;
+
+    my $notok = 0;
+
+    for my $result (<FH>)
+    {
+        my ($nodes, $dest) = (split ' ', $result)[0,-1];
+
+        $dest .= $o{d} if $dest !~ /\./ && $dest ne '/dev/null';
+
+        unless (_resolve ($dest, $t))
+        {
+            $error .= "$nodes '$dest' is UNRESOLVABLE!! (wrong name?)\n";
+            $notok = 1;
+            next;
+        }
+
+        if ($dest !~ /$t{$t}/)
+        {
+            $error .= "$nodes '$dest' does not match expected pattern $t{$t}\n";
+            $notok = 1;
+            next;
+        }
+    }
+
+    delete $t{$t} unless $notok;
+
+    close FH;
+}
+
+exit 0 unless (@t = sort keys %t);
+$t = join ',', @t; 
+
+my $subject = "bad tier ($t) definition on $o{r}!";
+
+print "$subject\n$error" unless $o{q};
+_alert ($error, $subject, $o{a}) unless $o{n};
+
+exit 0;
+
+sub _alert
+{
+    my ($error, $subject, $address) = @_;
+    my $cmd = "mail -s '$subject' $address";
+    open FH, "|$cmd" or die $!;
+
+    print FH $error;
+}
+
+sub _resolve
+{
+    my ($host, $t) = @_;
+
+    return $t =~ /^matchany(?:_center)$/ ? 0 : 1 if $host eq '/dev/null';
+
+    my @result = `host $host`;
+
+    return @result && $result[0] !~ /not found/ ? 1 : 0;
+}
+
+sub _print_opt
+{
+    my ($options, $usage) = @_;
+
+    print $usage if $usage;
+
+    for my $key (sort keys %$options)
+    {       
+        my $switch = (split (/[=:]/, $key))[0];
+        my ($a, $b) = split (/\|/, $switch);
+         
+        $switch = $b ? sprintf ("%10s%s", "-$a | --", $b)
+                     : sprintf ("%10s%s", '| --', $a);
+
+        $switch = sprintf "%-25s", $switch;
+    
+        printf "\n%s %s", $switch, $options->{$key};
+    }
+    
+    print "\n\n";
+}

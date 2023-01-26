@@ -1,0 +1,14 @@
+TEST:
+  - 
+    PORT: 8081
+    LINK: 'index.html.en'
+  -
+    PORT: 12345 
+    QUERY: 'checkfs2'
+    ERROR:
+      _NOT_: 'OK' 
+  -
+    PORT: 12345 
+    QUERY: 'checkfs'
+    ERROR:
+      _NOT_: 'OK' 

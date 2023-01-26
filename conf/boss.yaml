@@ -1,0 +1,4 @@
+df: { config: boss_df, QUERY_RANGE: '%boss_gateway_west' }
+ssh: { config: boss_ssh, QUERY_RANGE: '%boss_gateway_west' }
+gw: { config: boss_gw, QUERY_RANGE: '%boss_gateway_west' }
+echo: { QUERY_RANGE: everything }

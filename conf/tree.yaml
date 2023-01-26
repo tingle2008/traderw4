@@ -1,0 +1,4 @@
+CC1: { config: ssh_tree, QUERY_RANGE: '%%tree,&@CC1' }
+GQ1: { config: ssh_tree, QUERY_RANGE: '%%tree,&@GQ1' }
+AC2: { config: ssh_tree, QUERY_RANGE: '%%tree,&@AC2' }
+echo: { QUERY_RANGE: everything }

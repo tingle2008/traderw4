@@ -1,0 +1,6 @@
+TEST:
+  PORT: 55556
+  GREED: 1
+  LINK: 'boss_gateway_status'
+  ERROR:
+    _NOT_: 'OK'

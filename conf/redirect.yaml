@@ -1,0 +1,3 @@
+rdr: { QUERY_RANGE: '%%all:redirect,-%rdrin2' }
+vips: { QUERY_RANGE: '%all:redirect' }
+echo: { QUERY_RANGE: everything }

@@ -1,0 +1,60 @@
+# Reference:  http://twiki.corp.yahoo.com/view/Yst/SimonAdminGuide
+# Example:  http://74.6.191.41:4080//Aggregator/data?format=text&mode=current&cluster=idpproxy_yahoo1
+
+CONF: /home/seco/releases/clients/simon.tcl
+CIDF: /home/seco/releases/clients/clusterAccess.tcl
+PORT: 4080
+DATA: Aggregator/data
+MODE: 'format=text&mode=current'
+
+GREED: 3
+#  where
+#   0: return with errors for one ID for one metric
+#   1: return with errors for each ID for one metric
+#   2: return with errors for one ID for each metric
+#   3: return with errors for each ID for each metric
+
+# "special" variable that may be called by EVAL:
+# $cluster: name of the current cluster
+
+EVAL:
+
+  ## Spelling by Client (spellers only): (for each client)
+  ## QPS > x and latency by client > y times the average latency
+
+  'SP+C/*/0':
+    -
+      pretest: '$1 !~ /yahoousimageddspell/ && {QPS} > 1'
+      test: '{LAT} > 40 && {LAT} > 3 * {SP+T}{LAT}'
+
+  ## Spelling by Node (spellers only): (for each node)
+  ## QPS > x and latency by client > y times the average latency
+
+  'SP+N/*':
+    -
+      pretest: '(!{INTERNAL}) && {QPS} > 5'
+      test: '{LAT} > 4 * {SP+T}{LAT}'
+
+  ## System (PF in gauge) by Node: (for each node)
+  ## node has more than x times the load than average and causing problems
+
+  SYS+N:
+    -
+      pretest: '{DISK} > 8 && {SP+N}{$1}{QPS} > 1'
+      test: '{DISK} > 8 * {SYS+T}{DISK} && {SP+N}{$1}{LAT} > 35'
+    -
+      pretest: '{CPU} > 40 && {W+N}{$1}{QPS} > 10'
+      test: '{CPU} > 3 * {SYS+T}{CPU} && {W+N}{$1}{LAT} > 2 * {W+T}{LAT}'
+    -
+      pretest: '{CLNTFILES} > 300 && {W+N}{$1}{QPS} > 10 '
+      test: '{CLNTFILES} > 2 * {SYS+T}{CLNTFILES} && {W+N}{$1}{LAT} > 2 * {W+T}{LAT}'
+
+  ## Work by Client Database by Client: (for some client)
+  ## QPS > x && LAT > y
+
+  'WCD+C/*/0/spellchecker':
+    -
+      pretest: '{QPS} > 15'
+      test: '{LAT} > 0.035'
+
+# EOF

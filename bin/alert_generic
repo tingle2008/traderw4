@@ -1,0 +1,87 @@
+#!/usr/local/bin/perl -w
+#
+# Generic alert handler script
+#
+# reads a YAML file from STDIN and alert by email
+#
+use strict;
+use warnings;
+use YAML::Syck;
+
+die "usage: $0 email-address" if @ARGV != 1;
+
+my $to = shift;
+my $from = 'watcher';
+
+my $yaml = '';
+map { $yaml .= $_ } <STDIN>;
+my $state = YAML::Syck::Load($yaml);
+
+my $test = $state->{test};
+my $watcher = $state->{watcher};
+$state = $state->{node};
+
+for my $node (keys %$state)
+{
+    my $msg = $state->{$node}{msg};
+    my $count = $state->{$node}{count};
+    my $time = time - $state->{$node}{timestamp};
+    $time .= 's';
+
+    my $mail = "To: $to\n"
+             . "From: $from\n"
+             . "Subject: w4 $watcher -t $test -r $node ($time/$count)\n";
+
+    $mail .= "\n" . _proc_msg ($msg) . "\n";
+
+    _mail ($from, $to, $mail); 
+}
+
+sub _mail
+{
+    require Net::SMTP;
+    my ($from, $to, $mail) = @_;
+
+    my $smtp=Net::SMTP->new('localhost');
+    die "Net::SMPTP->new: $!" unless defined $smtp;
+
+    $smtp->mail($from);
+    $smtp->to($to);
+    $smtp->data($mail);
+    $smtp->quit;
+}
+
+sub _proc_msg
+{
+    require Seco::AwesomeRange;
+
+    my $orig = shift;
+
+    die "msg is not SCALAR\n" if ref $orig;
+
+    return $orig if $orig !~ s/^YAML---/---/;
+
+    my $msg = YAML::Syck::Load ($orig);
+    die "stringified YAML msg is not HASH\n" unless ref $msg eq 'HASH';
+
+    $orig = '';
+
+    for my $m (keys %$msg)
+    {
+        my $ref = ref $msg->{$m};
+
+        unless ($ref)
+        {
+            $orig .= $msg->{$m};
+            $orig .= " $m | ";
+            next;
+        }
+        die "msg field must be SCALAR or ARRARY" if $ref ne 'ARRAY';
+
+        $orig .= Seco::AwesomeRange::compress_range (@{$msg->{$m}});
+        $orig .= " $m | ";
+    } 
+
+    chop $orig; chop $orig; chop $orig;
+    return $orig;
+}

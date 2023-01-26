@@ -1,0 +1,338 @@
+#!/usr/local/bin/perl -w
+
+use strict;
+use Seco::sudo;
+use POSIX;
+
+my $svc_usr = 'root';
+Seco::sudo::become ($svc_usr);
+
+my $w4_usr = 'watcher';
+my $w4_grp = 'search';
+
+my $app_root = "/home/$w4_usr";
+my $w4       = "$app_root/w4/bin/w4";
+my $conf     = "$app_root/w4/conf";
+my $var      = "$app_root/var";
+my $service  = "$app_root/service";
+
+my $actions = 'start|stop|kill|restart|status|reload';
+my $usage = "Usage: $0 $actions watcher [ watcher .. ]\n";
+
+my $action = lc shift @ARGV;
+
+my %argv = map { $_ => 1 } @ARGV;
+
+if ($argv{all})
+{
+    delete $argv{all};
+    map { $argv{$1} = 1 if $_=~ /w4-(.+)/ } glob $service . '/*';
+}
+
+unless (@ARGV = keys %argv)
+{
+    warn "$usage\n\t(see $conf/*.yaml)\n";
+    exit 1;
+}
+
+my %rc;
+
+if ($action eq 'start')
+{
+    %rc = map {  _setup_svc ($_) => 1 } @ARGV;
+}
+elsif ($action eq 'stop' || $action eq 'kill')
+{
+    %rc = map {  _stop_svc ($_) => 1 } @ARGV;
+}
+elsif ($action eq 'restart')
+{
+    %rc = map {  _stop_svc ($_) && sleep 3; _setup_svc ($_) => 1 } @ARGV;
+}
+elsif ($action eq 'status')
+{
+    my %exclude;
+
+    %rc = map {  _svc_svc ($_) && _get_exclude ($_, \%exclude) => 1 } @ARGV;
+    _summarize_exclude (\%exclude);
+}
+elsif ($action eq 'reload')
+{
+    %rc = map {  _svc_svc ($_, '-h') => 1 } @ARGV;
+}
+else
+{
+    warn $usage;
+    exit 1;
+}
+
+exit 2 unless keys %rc == 1;
+exit 0 unless defined $rc{0};
+exit 1;
+
+sub _setup_svc
+{
+    use File::Path;
+    use File::Copy;
+
+    my $watcher = shift;
+    my $svc_cfg = "$conf/$watcher.yaml";
+
+    # check watcher config
+
+    unless (-f $svc_cfg) 
+    {
+        warn "cannot set up $watcher: $svc_cfg does not exsit.\n";
+        return 0;
+    }
+
+    # check svc symlink 
+
+    my $svc = 'w4-' . $watcher;
+    my ($svc_dir, $svc_link) = ("$service/$svc", "/service/$svc");
+
+    if (-l $svc_link)
+    {
+        my $svc_old = readlink $svc_link;
+
+        $svc_dir eq $svc_old ?
+            warn "$watcher is already setup: $svc_link -> $svc_dir\n" :
+            warn "$svc_link already links to $svc_old instead of $svc_dir\n";
+
+        return 0;
+    }
+
+    # create w4 var
+
+    my $uid = getpwnam($w4_usr);
+    my $gid = getgrnam($w4_grp);
+
+    unless (defined $uid && defined $gid)
+    {
+        warn "cannot determine uid:gid for $w4_usr:$w4_grp\n";
+        return 0;
+    }
+
+    # create w4 var and svc log
+
+    my $svc_log = "$svc_dir/log";
+
+    for my $dir ($var, $svc_log)
+    {
+        unless (-d $dir || mkpath ($dir, 0, 0755))
+        {
+            warn "cannot 'mkdir $dir' as '$svc_usr'\n";
+            return 0;
+        }
+    }
+
+    # chown w4 var
+ 
+    unless (chown ($uid, $gid, $var))
+    {
+        warn "cannot 'chown $uid:$gid $var' as '$svc_usr'\n";
+        return 0;
+    }
+
+    # create svc run script 
+
+    my $svc_run = "$svc_dir/run";
+    my $content = <<EOF;
+#!/bin/sh
+
+exec 2>&1
+exec setuidgid $w4_usr $w4 -c $watcher -a start -v $var
+
+EOF
+
+    unless (_make_run_script ($svc_run, $content, '0544'))
+    {
+        warn "cannot create $svc_run as '$svc_usr'\n"; 
+        return 0;
+    }
+
+    # create svc log run script 
+
+    $svc_run = "$svc_log/run";
+    $content = <<EOF;
+#!/bin/sh
+
+mkdir -p ./main
+chown -R nobody ./main
+exec setuidgid nobody multilog t I s200000 n5 ./main
+
+EOF
+
+    unless (_make_run_script ($svc_run, $content, '0544'))
+    {
+        warn "cannot create $svc_run as '$svc_usr'\n"; 
+        return 0;
+    }
+
+    # create svc synlink
+
+    unless (symlink $svc_dir, $svc_link)
+    {
+        warn "cannot 'ln -s $svc_dir $svc_link' as '$svc_usr'\n"; 
+        return 0;
+    }
+
+    return 1;
+}
+
+sub _make_run_script
+{
+    my ($svc_run, $content, $mode) = @_; 
+
+    my $tmp_run = "$svc_run.tmp";
+
+    unless (open FH, ">$tmp_run")
+    {   
+        warn "cannot open $tmp_run for write\n";
+        return 0;
+    }
+
+    print FH $content;
+    close FH;
+
+    unless (chmod oct ($mode), $tmp_run)
+    {
+        warn "cannot 'chmod $mode $tmp_run'";
+        return 0;
+    }
+
+    unless (move ($tmp_run, $svc_run))
+    {
+        warn "cannot 'mv $tmp_run $svc_run'\n";
+        return 0;
+    }
+
+    return 1;
+} 
+
+sub _stop_svc
+{
+    my $watcher = shift;
+
+    my $svc = 'w4-' . $watcher;
+    my ($svc_dir, $svc_link) = ("$service/$svc", "/service/$svc");
+
+    if  (-l $svc_link)
+    {
+        my $svc_old = readlink $svc_link;
+
+        if ($svc_dir ne $svc_old)
+        {
+            warn "$svc_link links to $svc_old instead of $svc_dir, will not unlink\n";
+        }
+        elsif (! unlink $svc_link)
+        {
+            warn "cannot 'rm $svc_link' as '$svc_usr'\n";
+            return 0;
+        } 
+    }
+
+    my $rc = system ("svc -dx $svc_dir && $w4 -c $watcher -a stop -v $var");
+
+    return $rc ? 0 : 1 unless $action eq 'kill';
+
+    for my $run ("$svc_dir/run", "$svc_dir/log/run")
+    {
+        next unless -f $run && ! unlink $run;
+        warn "cannot 'rm $run' as '$svc_usr'\n";
+        return 0;
+    }
+
+    return $rc ? 0 : 1;
+}
+
+sub _svc_svc
+{
+    my $watcher = shift;
+    my $svccmd = @_ ? "svc $_[0]" : 'svstat';
+
+    return 0 if system ("$svccmd $service/w4-$watcher");
+    return 1;
+}
+
+sub _get_exclude
+{
+
+    my ($watcher, $exclude) = @_;
+    my $xdir = "$var/$watcher/exclude";
+
+    for my $test ("$xdir/global", glob "$xdir/watcher/*")
+    {
+        return 0 unless chdir "$test";
+        $test =~ s/^.*\/([^\/]+)$/$1/;
+
+        for my $x (glob '*')
+        { 
+            my $since = ceil ((stat $x)[10] / 60);
+            next unless open FH, $x;
+            my $period = <FH>;
+            close FH;
+            push @{$exclude->{$since}{$period}{$test}{$watcher}}, $x;
+        }
+    }
+}
+
+sub _summarize_exclude
+{
+    my $exclude = shift;
+    my $time = ceil (time/60);
+
+    print "excluded:\n";
+
+    for my $since (reverse sort _numerically keys %$exclude)
+    {
+        my $whence = _express_time ($time - $since);
+
+        for my $period (sort _numerically keys %{$exclude->{$since}})
+        {
+            for my $test (sort keys %{$exclude->{$since}{$period}})
+            {
+                my %summary;
+                for my $watcher (keys %{$exclude->{$since}{$period}{$test}})
+                {
+                    my $range = join "\n",
+                        sort @{$exclude->{$since}{$period}{$test}{$watcher}};
+
+                    push @{$summary{$range}}, $watcher;
+                }
+
+                my $period = _express_time (ceil ($period/60));
+
+                for my $range (sort keys %summary)
+                {
+                    print "$range:\n\t$whence ago, for $period, for '$test' by",
+                          "\n\t  ", join (', ', @{$summary{$range}}), "\n";
+                }
+            }
+        }
+    }
+}
+
+sub _numerically { $a <=> $b }
+
+sub _express_time 
+{
+    my $minute = shift;
+    my $exp = '';
+
+    if (my $day = floor ($minute/1440))
+    {
+        $minute %= 1440;
+        $exp = sprintf "%2d days ", $day;
+    }
+    if (my $hour = floor ($minute/60))
+    {
+        $exp .= sprintf "%2d hours ", $hour;
+        $minute %= 60;
+    }
+
+    $exp .= sprintf "%2d minutes ", $minute if $minute;
+    chop $exp if $exp;
+
+    return $exp;
+}

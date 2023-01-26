@@ -1,0 +1,30 @@
+#
+# Equivalent test command:
+#
+#   echo or yes or true
+#
+use strict;
+use Seco::MultipleTcp;
+
+return sub
+{
+    my ($result,$params,@hosts)=@_;
+
+    return unless @hosts; 
+
+    my %p = $params =~ /\s*([^\s"]+|"[^"]*")\s*/g;
+    map { $p{$_} =~ s/^"([^"]+)"$/$1/ } keys %p;
+
+    my %status = 
+    (
+        'WARNING' => 1,
+        'UNKNOWN' => 1,
+        'ERROR' => 1,
+        'OK' => 1,
+    ); 
+
+    my $status = defined $p{status} && $status{$p{status}} ? $p{status} : 'OK';
+    my $msg = defined $p{msg} ? $p{msg} : 'OK';
+
+    map { $result->{$_} = [ $status, $msg ] } @hosts;
+}

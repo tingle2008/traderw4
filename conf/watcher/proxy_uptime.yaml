@@ -1,0 +1,27 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/proxy_uptime.yaml
+QUERY_COMMAND_TIMEOUT: 60
+
+FREQUENCY: 60
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR, UNKNOWN]
+    START: 300
+    REPEAT: 300
+    STOP: 600
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp 'proxy uptime < 2m' cluster-ops-pager-1 (STATE)]
+  -
+    STATUS: [ERROR, UNKNOWN]
+    START: 900
+    REPEAT: 300
+    STOP: 1200
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp 'proxy uptime < 2m' cluster-ops-pager-2 (STATE)]
+  -
+    STATUS: [ERROR, UNKNOWN]
+    REPEAT: 300
+    START: 1500
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp 'proxy uptime < 2m' cluster-ops-pager-3 (STATE)]

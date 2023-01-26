@@ -1,0 +1,25 @@
+#!/usr/bin/perl -w
+
+use strict;
+use Seco::AwesomeRange;
+
+my $dir = $ARGV[0] || '/home/watcher/w4/conf';
+my $total = 0;
+
+for my $file (glob "$dir/*")
+{
+    next unless -f $file;
+    open my $fh, $file or die "cannot read $file";
+    while (<$fh>)
+    {
+        my $line = $_;
+        next if $line =~ /^\s*#/;
+        next if $line !~ /QUERY_RANGE:['\s]*([^'\s]+)/;
+        my @hosts = Seco::AwesomeRange::expand_range ($1);
+        $total += @hosts;
+    } 
+    close $fh;
+}
+
+print "Total target count: $total\n";
+print "Load average: ", `cat /proc/loadavg`;

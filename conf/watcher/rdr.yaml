@@ -1,0 +1,27 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/rdr.yaml
+QUERY_COMMAND_TIMEOUT: 1200
+
+FREQUENCY: 90
+MAX_THREADS: 4
+MAX_RANGE: 10
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [UNKNOWN]
+    BATCH: 4
+    START: 360
+    STOP: 720
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp 'redirect (port 80) down' cluster-ops-pager-1 yst-sms-content-status@yahoo-inc.com (STATE)]
+  -
+    STATUS: [UNKNOWN]
+    BATCH: 4
+    START: 1080
+    STOP: 1800
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp 'redirect (port 80) down' cluster-ops-pager-2 yst-sms-content-status@yahoo-inc.com (STATE)]
+  -
+    STATUS: [UNKNOWN]
+    BATCH: 4
+    START: 2000
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp 'redirect (port 80) down' cluster-ops-pager-3 yst-sms-content-status@yahoo-inc.com (STATE)]

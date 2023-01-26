@@ -1,0 +1,27 @@
+QUERY_COMMAND: dns
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/dns.yaml
+QUERY_COMMAND_TIMEOUT: 30
+
+FREQUENCY: 30
+MAX_THREADS: 1
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR]
+    START: 100
+    REPEAT: 100
+    STOP: 300
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg cluster-ops-pager-1 searchsup@yahoo-inc.com (STATE)]
+  -
+    STATUS: [ERROR]
+    START: 300
+    REPEAT: 100
+    STOP: 600
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg cluster-ops-pager-2 searchsup@yahoo-inc.com (STATE)]
+  -
+    STATUS: [ERROR]
+    START: 600
+    REPEAT: 100
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg cluster-ops-pager-3 searchsup@yahoo-inc.com (STATE)]

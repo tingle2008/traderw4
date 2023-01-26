@@ -1,0 +1,5 @@
+TEST:
+  PORT: 22
+  QUERY: ''
+  ERROR:
+    _NOT_: 'SSH-2.0-OpenSSH'

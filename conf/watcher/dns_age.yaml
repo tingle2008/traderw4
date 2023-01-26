@@ -1,0 +1,13 @@
+QUERY_COMMAND: dns_age
+QUERY_COMMAND_TIMEOUT: 1200
+QUERY_COMMAND_PARAMS: "threshold 24"
+
+FREQUENCY: 43200
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR, WARNING]
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg watcherbot (STATE)]

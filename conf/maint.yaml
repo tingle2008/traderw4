@@ -1,0 +1,7 @@
+jovar: { config: maint, QUERY_RANGE: jovar }
+peadm5024: { config: maint, QUERY_RANGE: peadm5024 }
+galaga: { config: maint, QUERY_RANGE: galaga }
+archon: { config: maint, QUERY_RANGE: archon }
+devo: { config: maint, QUERY_RANGE: devo }
+rodan: { config: maint, QUERY_RANGE: rodan }
+chongzhi: { config: maint, QUERY_RANGE: chongzhi }

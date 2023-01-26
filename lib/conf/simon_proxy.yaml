@@ -1,0 +1,165 @@
+# Reference:  http://twiki.corp.yahoo.com/view/Yst/SimonAdminGuide
+# Example:  http://74.6.191.41:4080//Aggregator/data?format=text&mode=current&cluster=idpproxy_yahoo1
+
+CONF: /home/seco/releases/clients/simon.tcl
+CIDF: /home/seco/releases/clients/clusterAccess.tcl
+PORT: 4080
+DATA: Aggregator/data
+MODE: 'format=text&mode=current'
+
+GREED: 3
+#  where
+#   0: return with errors for one ID for one metric
+#   1: return with errors for each ID for one metric
+#   2: return with errors for one ID for each metric
+#   3: return with errors for each ID for each metric
+
+# "special" variable that may be called by EVAL:
+# $cluster: name of the current cluster
+
+EVAL:
+
+  ## Error by Client: (for each client)
+  ## rate of all errors over QPS > x
+
+  'E+C/*/0':
+    - 
+      pretest: '$1 !~ /inkdisplays|yahoobossselfserve|overturejp|yahooussiteexplorer|abachostandard|overavantstandard/ && {W+C}{$1}{$2}{QPS} > 1' 
+      test: '{TOTAL} / {W+C}{$1}{$2}{QPS} > 2'
+
+    - 
+      pretest: '$1 =~ /yahoobossselfserve|overturejp|yahooussiteexplorer|abachostandard/ && {W+C}{$1}{$2}{QPS} > 1'
+      test: '{TOTAL} / {W+C}{$1}{$2}{QPS} > 6'
+
+  ## Error by Node: errors per node > x of total
+
+  E+N:
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10 && ({E+T}{TOTAL} - {E+T}{CLSTR400}) / {W+T}{QPS} > 1.2'
+      test: '{TOTAL} / {E+T}{TOTAL} > 0.9'
+  
+  ## Error Total: rate of each type of error over QPS > x
+
+  E+T:
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR400} / {W+T}{QPS} > 2'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR500} / {W+T}{QPS} > 2'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR501} / {W+T}{QPS} > 2'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR502} / {W+T}{QPS} > 2'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR503} / {W+T}{QPS} > 2'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR504} / {W+T}{QPS} > 2'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR505} / {W+T}{QPS} > 2'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR506} / {W+T}{QPS} > 2'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR507} / {W+T}{QPS} > 2'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '({TOTAL} - {CLSTR400}) / {W+T}{QPS} > 2'
+
+  ## Spell Control by client: (for each client)
+  ## when QPS > x and rate of spell failure > y
+
+  'SC+C/*/0':
+    -
+      pretest: '$1 !~ /lycosusstandard|goodsearchstandard/ && {SPSQPS} > 1'
+      test: '({SPFAIL} + {SPERR}) / {SPSQPS} > 5'
+
+  ## Error Total: spell failure rate > x
+
+  SC+T:
+    -
+      pretest: '(!{INTERNAL}) && {SPSQPS} > 10'
+      test: '{SPFAIL} / {SPSQPS} > 2'
+    -
+      pretest: '(!{INTERNAL}) && {SPSQPS} > 10'
+      test: '{SPERR} / {SPSQPS} > 2'
+  
+  ## Search by Client Database by DB: (for each DB)
+  ## QPS > x and latency > y where y is different for tiers 
+  ## if increased, corresponding W metrics also need to change
+
+  SCD+DB:
+    -
+      pretest: '$1 !~ /es|thin|de_oem/ && {QPS} > 10'
+      test: '{LAT} > 0.15' 
+    -
+      pretest: '$1 =~ /es|thin/ && {QPS} > 10'
+      test: '{LAT} > 0.25' 
+    -
+      pretest: '$1 =~ /de_oem/ && {QPS} > 10'
+      test: '{LAT} > 0.2' 
+
+  ## System (PF in gauge) by Node: (for each node)
+  ## node has more than x times the load than average and causing lat
+
+  SYS+N:
+    -
+      pretest: '{CPU} > 40'
+      test: '{CPU} > 2 * {SYS+T}{CPU} && {W+N}{$1}{LAT} > 2 * {W+T}{LAT}'
+    -
+      pretest: '{DISK} > 50'
+      test: '{W+N}{$1}{LAT} > 2 * {W+T}{LAT}'
+    -
+      test: '{MEMUSED} < 1.5 * {SYS+T}{MEMUSED} && {W+N}{$1}{LAT} > 2 * {W+T}{LAT}'
+
+  ## Caching Module Total: latency > x (same as proxylatency watcher)
+
+  CM+T:
+    -
+      pretest: '(!{INTERNAL}) && {QPS} > 10'
+      test: '{LAT} > 0.45'
+
+  ## Caching Module by Node: (for each node)
+  ## QPS > x and latency by client > x times the average latency
+
+  CM+N:
+    -
+      pretest: '(!{INTERNAL}) && {QPS} > 1 && {CM+T}{LAT} > 0.3'
+      test: '{LAT} > 2 * {CM+T}{LAT}'
+
+  ## Work by Node: (for each node)
+  ## QPS > x and latency by client > x times the average latency
+
+  W+N:
+    -
+      pretest: '(!{INTERNAL}) && {QPS} > 10'
+      test: '{LAT} > 3 * {W+T}{LAT}'
+
+  ## Work Total: latency > x
+
+  W+T:
+    -
+      pretest: '$cluster !~ /oem|yahoojp/'
+      test: '{LAT} > 0.37'
+    -
+      pretest: '$cluster =~ /yahoojp/'
+      test: '{LAT} > 0.45'
+    -
+      pretest: '$cluster =~ /oem/'
+      test: '{LAT} > 0.2'
+
+  ## Work by Client Database by Client: (for some client)
+  ## QPS < x
+
+  'WCD+C/465/0/wownrm-jp':
+    -
+      pretest: '$cluster =~ /yahoojp/'
+      test: '{QPS} < 25'
+
+# EOF

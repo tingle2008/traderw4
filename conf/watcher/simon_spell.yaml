@@ -1,0 +1,32 @@
+QUERY_COMMAND: simon
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/simon_spell.yaml
+QUERY_COMMAND_TIMEOUT: 60
+
+FREQUENCY: 60
+MAX_THREADS: 1
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [WARNING, UNKNOWN]
+    START: 0
+    REPEAT: 900
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg watcherbot (STATE)]
+  -
+    STATUS: [ERROR]
+    START: 300
+    REPEAT: 300
+    STOP: 900
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg cluster-ops-pager-1 searchsup@yahoo-inc.com (STATE)]
+  -
+    STATUS: [ERROR]
+    START: 900
+    REPEAT: 300
+    STOP: 1500
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg cluster-ops-pager-2 searchsup@yahoo-inc.com (STATE)]
+  -
+    STATUS: [ERROR]
+    START: 1500
+    REPEAT: 300
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg cluster-ops-pager-3 searchsup@yahoo-inc.com (STATE)]

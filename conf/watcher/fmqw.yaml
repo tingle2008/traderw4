@@ -1,0 +1,15 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/fmqw.yaml
+QUERY_COMMAND_TIMEOUT: 1100
+
+FREQUENCY: 1200
+MAX_THREADS: 4
+MAX_RANGE: 50
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR, UNKNOWN]
+    START: 3600
+    REPEAT: 3600
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -mp 'IDPD down > 1h' cluster-ops-pager-1 (STATE)]

@@ -1,0 +1,105 @@
+#
+# Input parameters: (default values)
+#
+#   threshold: (12) hours since last dns update, over which ERROR is raised
+#
+# States:
+#
+#   OK:
+#     - no ERROR or WARNING
+#
+#   UNKNOWN
+#     - unreachable
+#
+#   ERROR:
+#     - last dns update is over 'threshold' hours
+#
+# Equivalent test command:
+#
+#   allmanateed.pl -r %range 'nobody host version'
+#
+use Seco::MultipleTcp;
+use DateTime;
+use strict;
+
+return sub
+{
+    my ($result,$params,@hosts)=@_;
+
+    return unless @hosts;
+
+    my %p = $params =~ /\s*([^\s"]+|"[^"]*")\s*/g;
+    map { $p{$_} =~ s/^"([^"]+)"$/$1/ } keys %p;
+
+    my $threshold = defined $p{threshold} ? $p{threshold} : 12;
+    my $timeout = defined $p{timeout} ? $p{timeout} : 0;
+    my $cmd = "nobody host version\n";
+    my $mtcp = new Seco::MultipleTcp;
+    my $port = 12345;
+
+    $mtcp -> global_timeout ($timeout);
+    $mtcp -> sock_timeout (30);
+    $mtcp -> minimum_time (0);
+    $mtcp -> maxflight (100);
+    $mtcp -> writebuf ($cmd);
+    $mtcp -> nodes (@hosts);
+    $mtcp -> port ($port);
+
+    my $r = $mtcp -> run ();
+    my $now = time;
+    my %ts;
+
+    while (@hosts)
+    {
+        my $host = shift @hosts;
+
+        my $obj = $r->{$host};
+        my $s;
+
+        if (! defined $obj || ($s = $obj->error())
+            || ($s = $obj->write_error()) || ($s = $obj->read_error()) 
+            || (! ($s = $obj->readbuf())) && ($s = "$port not responsive") 
+            || $s !~ /version not found/ && $s !~ /version-(\d{8}-\d{4})/)
+        {
+            chomp $s;
+            $result->{$host} = ['UNKNOWN', $s];
+        }
+        elsif ($s =~ /version not found/)
+        {
+            chomp $s;
+            $result->{$host} = ['ERROR', $s];
+        }
+        else
+        {
+            push @{$ts{$1}}, $host;
+        }
+  
+        $obj = (); delete $r->{$host};
+    }
+
+    my $tz = 'UTC';
+    my $dt = DateTime->new (year=>2008, time_zone=>$tz);
+
+    for my $ts (keys %ts)
+    {
+        $ts =~ /(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)/;
+        $dt->set (year=>$1, month=>$2, day=>$3, hour=>$4, minute=>$5);
+
+        my ($status, $msg) = ('OK', 'OK');
+        my $delta = $now - $dt->epoch;
+
+        if ($delta < 0)
+        {
+            $status = 'WARNING';
+            $msg = "dns last updated $ts $tz (in the future ?!)";
+        }
+        elsif ($delta/3600 > $threshold)
+        {
+            $status = 'ERROR';
+            $msg = "dns last updated $ts $tz, > $threshold hours";
+        }
+
+        map { $result->{$_} = [$status, $msg] } @{$ts{$ts}};
+        $ts{$ts} = (); delete $ts{$ts};
+    }
+}

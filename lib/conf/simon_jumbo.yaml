@@ -1,0 +1,32 @@
+# Reference:  http://twiki.corp.yahoo.com/view/Yst/SimonAdminGuide
+# Example:  http://74.6.191.41:4080//Aggregator/data?format=text&mode=current&cluster=idpproxy_yahoo1
+
+CONF: /home/seco/releases/clients/simon.tcl
+CIDF: /home/seco/releases/clients/clusterAccess.tcl
+PORT: 4080
+DATA: Aggregator/data
+MODE: 'format=text&mode=current'
+
+GREED: 3
+#  where
+#   0: return with errors for one ID for one metric
+#   1: return with errors for each ID for one metric
+#   2: return with errors for one ID for each metric
+#   3: return with errors for each ID for each metric
+
+# "special" variable that may be called by EVAL:
+# $cluster: name of the current cluster
+
+EVAL:
+
+  # high CPU/DSK util causing high LAT
+
+  W+F:
+    -
+      pretest: '{QPS} > 10 && {DSK} > 3 * {W+T}{DSK}'
+      test: '{DSK} > 80 && {AVGLAT} > 3 * {W+T}{AVGLAT}'
+    -
+      pretest: '{QPS} > 10 && {CPU} > 3 * {W+T}{CPU}'
+      test: '{CPU} > 80 && {AVGLAT} > 3 * {W+T}{AVGLAT}'
+
+# EOF

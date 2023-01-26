@@ -1,0 +1,15 @@
+UERY_COMMAND: simon
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/simon_cache_dev.yaml
+QUERY_COMMAND_TIMEOUT: 60
+
+FREQUENCY: 60
+MAX_THREADS: 1
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR]
+    START: 300
+    REPEAT: 300
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg searchsup@yahoo-inc.com yst-proxy-alerts-ir@yahoo-inc.com (STATE)]

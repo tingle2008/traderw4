@@ -1,0 +1,13 @@
+QUERY_COMMAND: df
+QUERY_COMMAND_TIMEOUT: 1200
+QUERY_COMMAND_PARAMS: 'threshold /=80,/export/crawlspace=70'
+
+FREQUENCY: 86400
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR,  UNKNOWN]
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg yst-courier-alerts@yahoo-inc.com watcherbot (STATE)]

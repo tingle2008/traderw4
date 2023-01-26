@@ -1,0 +1,3 @@
+deribit_options_trader: {config: private_get_positions_config_1 , exchange: deribit_rpc }
+deribit_options_buy:    {config: private_buy_config_1 , exchange: deribit_ws }
+deribit_options_sell:   {config: private_sell_config_1 , exchange: deribit_ws }

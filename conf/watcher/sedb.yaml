@@ -1,0 +1,15 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/sedb.yaml
+QUERY_COMMAND_TIMEOUT: 120
+
+FREQUENCY: 60
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR]
+    START: 300
+    REPEAT: 1200
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -q -csv cluster watcherbot yst-siteexp-alert@yahoo-inc.com (STATE)]

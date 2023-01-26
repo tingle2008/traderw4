@@ -1,0 +1,5 @@
+TEST:
+  PORT:  55555
+  QUERY: "idp\nclient:inktomi\n\nSEARCH\nquery:YQUERY(query{allwords{<feature:magic-query-word>}})\nfields:nodename\nnumresults:300\npragma:noproxy,noqcache,nodegrade,noxorro\n\n"
+  ERROR:
+    _NOT_: 'IDP\S+\s+200\s+\d+\s+SEARCH'

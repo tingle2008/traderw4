@@ -1,0 +1,6 @@
+TEST:
+  PORT: 4080
+  GREED: 1
+  LINK: 'api/select_profile?yahoo_id=carina_chang%23a1'
+  ERROR:
+    _NOT_: '7b51649116075fed951318e6c70207e7'

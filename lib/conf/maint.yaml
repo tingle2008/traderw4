@@ -1,0 +1,3 @@
+default:
+  wedged: 60
+  paused: 300

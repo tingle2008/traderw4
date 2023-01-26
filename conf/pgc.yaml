@@ -1,0 +1,4 @@
+pgc: { QUERY_RANGE: '%%all:pgc' }
+pgcfe: { QUERY_RANGE: '%{%all:pgc}fe' }
+vips: { QUERY_RANGE: '%all:pgc' }
+echo: { QUERY_RANGE: everything }

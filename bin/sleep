@@ -1,0 +1,102 @@
+#!/usr/local/bin/perl -w
+#
+# sleep $watcher -t $test -s $sleep
+#   causes $test by $watcher to be stopped for $sleep seconds
+#
+# sleep $watcher -r $range -s $sleep    
+#   causes $range to be ignored by all tests run by $watcher for $sleep seconds
+#
+# sleep $watcher -t $test -r $range -s $sleep
+#   causes $range to be ignored by $test run by $watcher for $sleep seconds
+#
+# -s is optional, defaults to 300 seconds
+#
+use strict;
+use Getopt::Long;
+use Seco::sudo;
+
+my $w4_usr = 'watcher';
+Seco::sudo::become ($w4_usr);
+
+my $app_root = "/home/$w4_usr";
+my $w4      = "$app_root/w4/bin/w4";
+my $conf    = "$app_root/w4/conf";
+my $var     = "$app_root/var";
+my $service = "$app_root/service";
+
+my @options =
+(
+    't|test=s',
+    'r|range=s',
+    's|sleep=s',
+    'h|help'
+);
+
+my %o;
+$o{s} = '20m';
+
+unless (GetOptions (\%o, @options) && !$o{h} && ($o{t} || $o{r}))
+{
+    warn "Usage: $0 [watcher .. (default 'all')] (-t test | -r range) [-s num(second|minute|hour|day)s]\n\t(see $conf/*.yaml)\n";
+    exit 1;
+}
+
+if (defined $o{s} && $o{s} =~ /^\s*(\d+)\s*(\w*)/)
+{
+    $o{s} = $1;
+    
+    if ($2 =~ /^m(in(ute)?s?)?$/) 
+    {
+        $o{s} *= 60;
+    }
+    elsif ($2 =~ /^h((ou)?rs?)?$/) 
+    {
+        $o{s} *= 3600;
+    }
+    elsif ($2 =~ /^d(ays?)?$/) 
+    {
+        $o{s} *= 86400;
+    }
+    elsif ($2 && $2 !~ /^s(ec(ond)?s?)?$/) 
+    {
+        warn "unknown time unit '$2', -s ignored, using default\n";
+        delete $o{s};
+    }
+}
+
+my %argv;
+@ARGV ? %argv = map { $_ => 1 } @ARGV : $argv{all} = 1;
+
+if ($argv{all})
+{
+    delete $argv{all};
+    map { $argv{$1} = 1 if $_=~ /w4-(.+)/ } glob $service . '/*';
+}
+
+exit 0 unless @ARGV = keys %argv;
+
+my %rc;
+
+foreach my $watcher (@ARGV)
+{
+    # check watcher config
+
+    my $svc_cfg = "$conf/$watcher.yaml";
+
+    unless (-f $svc_cfg) 
+    {
+        warn "cannot sleep $watcher: $svc_cfg does not exsit.\n";
+        $rc{1} = 1;
+        next;
+    }
+
+    # append options to command
+
+    my $cmd = "$w4 -v $var -a exclude -c $watcher";
+    map { $cmd .= " -$_ $o{$_}" } keys %o;
+    $rc{system ($cmd)} = 1;
+}
+
+exit 2 unless keys %rc == 1;
+$rc{0} ? exit 0 : exit 1;
+

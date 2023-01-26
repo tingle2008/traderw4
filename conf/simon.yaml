@@ -1,0 +1,16 @@
+proxy: { config: simon_proxy, QUERY_RANGE: '%all:proxy_yst,-idpproxy_{treefity,yahooresearch}1-2,-idpproxy_{stage1,mlr2,yahoo3}' }
+spell: { config: simon_spell, QUERY_RANGE: '%all:spell_yst' }
+jp1_dev: { config: i18ndev_simon_cache_jp1, QUERY_RANGE: idpproxy_jp1 }
+tw1_dev: { config: i18ndev_simon_cache_tw1, QUERY_RANGE: idpproxy_tw1 }
+kr3_dev: { config: i18ndev_simon_cache_kr3, QUERY_RANGE: idpproxy_kr3 }
+hk2_dev: { config: i18ndev_simon_cache_hk2, QUERY_RANGE: idpproxy_hk2 }
+sg1_dev: { config: i18ndev_simon_cache_sg1, QUERY_RANGE: idpproxy_sg1 }
+in2_dev: { config: i18ndev_simon_cache_in2, QUERY_RANGE: idpproxy_in2 }
+ird_dev: { config: i18ndev_simon_cache_ird, QUERY_RANGE: idpproxy_ird }
+jp1: { config: simon_cache_jp1, QUERY_RANGE: idpproxy_jp1 }
+tw1: { config: simon_cache_tw1, QUERY_RANGE: idpproxy_tw1 }
+kr3: { config: simon_cache_kr3, QUERY_RANGE: idpproxy_kr3 }
+hk2: { config: simon_cache_hk2, QUERY_RANGE: idpproxy_hk2 }
+sg1: { config: simon_cache_sg1, QUERY_RANGE: idpproxy_sg1 }
+in2: { config: simon_cache_in2, QUERY_RANGE: idpproxy_in2 }
+ird: { config: simon_cache_ird, QUERY_RANGE: idpproxy_ird }

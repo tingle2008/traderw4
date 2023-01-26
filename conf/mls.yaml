@@ -1,0 +1,6 @@
+disk: { config: dmesg_disk_error, QUERY_RANGE: '%%all:runtime_mls' }
+idpd: { config: mls_idpd, QUERY_RANGE: '%%all:jumbo_mls' }
+proxy: { config: mls_proxy_uptime, QUERY_RANGE: '%%all:{proxy_mls,spell_mls,master_mls}' }
+proxy_metrics: { config: mls_simon_proxy, QUERY_RANGE: '%all:proxy_mls' }
+spell_metrics: { config: mls_simon_spell, QUERY_RANGE: '%all:spell_mls' }
+echo: { QUERY_RANGE: everything }

@@ -1,0 +1,5 @@
+TEST:
+  PORT:  55555
+  QUERY: "idp\nclient:watcher\n\nSPELLCHECK\nquery:ALLWORDS(jumbo operations)\nTotalHits: 30000\nwordcounts: jumbo 800000, operations 13000000\nscore: 2004\nSpellState: suggest.safe\nQueryLanguage: english\nQueryEncoding: utf8\n\n"
+  ERROR:
+    _NOT_: 'IDP\S+\s+2\d\d\s+\d+\s+SPELLCHECK'

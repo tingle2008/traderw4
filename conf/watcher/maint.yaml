@@ -1,0 +1,27 @@
+QUERY_COMMAND: maint
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/maint.yaml
+QUERY_COMMAND_TIMEOUT: 60
+
+FREQUENCY: 300
+MAX_THREADS: 4
+MAX_RANGE: 10
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR]
+    START: 900
+    REPEAT: 900 
+    STOP: 1800
+    EXEC: [/home/watcher/w4/bin/alert_maint (STATE)]
+  -
+    STATUS: [ERROR]
+    START: 2700
+    REPEAT: 900 
+    STOP: 3600
+    EXEC: [/home/watcher/w4/bin/alert_maint cluster-ops-pager-2 (STATE)]
+  -
+    STATUS: [ERROR]
+    START: 4500
+    REPEAT: 900 
+    EXEC: [/home/watcher/w4/bin/alert_maint cluster-ops-pager-3 (STATE)]

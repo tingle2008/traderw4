@@ -1,0 +1,161 @@
+#!/usr/local/bin/perl -w
+use warnings 'all';
+use strict;
+
+use YAML::Syck;
+use Getopt::Long;
+use Fatal qw(open close unlink mkdir);
+
+my $rootdir;
+my $numthreads;
+BEGIN
+{
+    require File::Basename;
+    require File::Spec;
+    my $name=File::Spec->rel2abs($0);
+    $rootdir=File::Basename::dirname($name);
+    $rootdir=~s/\/?bin$//;
+    die if ! defined $rootdir or $rootdir!~m{/};
+
+    $numthreads=8;
+}
+require "$rootdir/bin/w4lib.pm";
+
+$|=1;
+my $hup_received=0;
+$SIG{'HUP'}  = sub {$hup_received=1};
+$SIG{ALRM} = sub {}; #work arround perl bug: if ALRM handler is not set, watcher will die when thread signals itself
+
+my $watchers_config=undef;
+my $vardir=undef;
+my $action="start";
+my $exclude_test;
+my $sleep=300;
+my @range;
+Getopt::Long::GetOptions(
+    "config=s"  => \$watchers_config,
+    "var=s"  => \$vardir,
+    "action=s"  => \$action,
+    "test=s" => \$exclude_test,
+    "sleep=i"    => \$sleep,
+    "range=s@"    => \@range,
+) or usage();
+
+usage() if @ARGV;
+usage() if ! defined $watchers_config;
+my $config_file="$rootdir/conf/$watchers_config.yaml";
+die "config is not found: $config_file" if ! -f $config_file;
+
+$vardir="$rootdir/var" if ! defined $vardir;
+mkdir $vardir if ! -d $vardir;
+$vardir.="/$watchers_config";
+mkdir $vardir if ! -d $vardir;
+
+my $pid_dir="$vardir/run";
+mkdir $pid_dir if ! -d $pid_dir;
+
+my @running_pids;
+for(map {/$pid_dir\/(.*)/} <$pid_dir/*>)
+{
+    if(! -d "/proc/$_")
+    {
+        unlink "$pid_dir/$_";
+        next;
+    }
+    push @running_pids,$_;
+}
+if($action eq 'start')
+{
+    die "$0 --config $watchers_config already running PID ".join(' ',@running_pids)."\n" if @running_pids;
+
+    local *F;
+    open F, ">$pid_dir/$$";
+    close F;
+ 
+   my %w4params;
+   $w4params{rootdir}=$rootdir;
+   $w4params{numthreads}=$numthreads;
+   $w4params{vardir}=$vardir if defined $vardir;
+    
+    my $w4=new w4(\&Log,$watchers_config,%w4params);
+    while(1)
+    {
+        if($hup_received)
+        {
+            $hup_received=0;
+            $w4->configure();
+        }
+        $w4->run()|| sleep(1);
+    }
+}
+elsif ($action eq 'reload')
+{
+    kill HUP=>@running_pids; 
+}
+elsif ($action eq 'stop')
+{
+    kill TERM=>@running_pids; 
+    for(@running_pids)
+    {
+        waitpid(0,$_);
+        unlink "$pid_dir/$_";
+    }
+}
+elsif ($action eq 'exclude')
+{
+    my $cfg=YAML::Syck::LoadFile($config_file);
+    die "no such test: $exclude_test in $config_file" if defined $exclude_test && ! defined $cfg->{$exclude_test};
+    if(!@range)
+    {
+        if (defined  $exclude_test)
+        {
+            @range=($cfg->{$exclude_test}{QUERY_RANGE});
+        }
+    }
+    print("Don't know what to exclude\n"),exit 1 if ! @range;
+    my $exclude_path="$vardir/exclude";
+    mkdir $exclude_path if ! -d $exclude_path;
+    if (defined $exclude_test)
+    {
+        mkdir "$exclude_path/watcher" if ! -d "$exclude_path/watcher";
+        $exclude_path.="/watcher/$exclude_test";
+    }
+    else
+    {
+        $exclude_path.="/global";
+    }
+    if (! -d $exclude_path)
+    {
+        mkdir $exclude_path;
+    }
+    for (@range)
+    {
+        local *F;
+        open F,">$exclude_path/$_";
+        print F $sleep;
+        close F;
+    }
+}
+else
+{
+    usage();
+}
+sub usage
+{
+    print "Usage: $0 <--config <config>  [--var dir][ --action <start|reload|stop|(exclude [--test <test>] [--sleep <seconds>] [--range r1 [--range r2 [...]]])>]\n";
+    exit 1;
+}
+sub Log
+{
+    my ($severity, $watcher, $subject, $message)=@_;
+
+    my %severities=map{($_,1)} qw(CRITICAL ERROR WARNING INFO DEBUG);
+
+    $severity='CRITICAL' if ! defined $severities{$severity};
+    $watcher='self' if $watcher eq '';
+    my $msg={time=>scalar(localtime),severity=>$severity,subject=>$subject,message=>$message,watcher=>$watcher};
+
+    local $YAML::Syck::Headless;
+    $YAML::Syck::Headless=1;
+    print YAML::Syck::Dump($msg),"---\n";
+}

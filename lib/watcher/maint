@@ -1,0 +1,153 @@
+#
+# Input parameters:
+#
+#   a YAML policy file that defines alert thresholds in minutes
+#   for wedged maint sequences and steps, which might read: 
+#
+#   default:
+#     wedged: 60
+#     paused: 180
+#   exw:
+#     wedged: 90
+#     paused: 300
+#
+# States:
+#
+#   ERROR:
+#     - maint is stuck
+#     - maint is paused for longer than threshold
+#     - maint is wedged (exhibiting no progress) for longer than threshold
+#
+#   OK:
+#     - opposite of ERROR
+#
+# Equivalent test command:
+#
+#   allmanateed.pl -r @MAINT 'nobody maint_stat'
+#
+use strict;
+use YAML::Syck;
+use Seco::MultipleTcp;
+
+return sub
+{
+    my ($result,$params,@hosts)=@_;
+
+    my $p = -f $params ? YAML::Syck::LoadFile ($params) : {};
+
+    $p->{default}{wedged} ||= 60;
+    $p->{default}{paused} ||= 180;
+
+    my $cmd = "nobody maint_stat\n";
+    my $mtcp = new Seco::MultipleTcp;
+    my $port = 12345;
+        
+    $mtcp -> global_timeout (0);
+    $mtcp -> sock_timeout (30);
+    $mtcp -> minimum_time (0);
+    $mtcp -> maxflight (100);
+    $mtcp -> writebuf ($cmd);
+    $mtcp -> nodes (@hosts);
+    $mtcp -> port ($port);
+        
+    my $r = $mtcp -> run ();
+    my $now = time;
+
+    while (@hosts)
+    {
+        my $host = shift @hosts;
+
+        my $o = $r->{$host};
+        my $s;
+
+        if (! defined $o || ($s = $o->error()) || ($s = $o->write_error())
+            || ($s = $o->read_error()) )
+        {
+            chomp $s;
+            $result->{$host} = ['UNKNOWN', $s];
+        }
+        else
+        {
+            $result->{$host} = ['OK', 'OK'];
+
+            next unless $s = $o->readbuf(); 
+
+            eval { $s = YAML::Syck::Load $s };
+
+            if ($@)
+            {
+                $result->{$host} = ['UNKNOWN', 'cannot load maint status'];
+                next;
+            }
+
+            my %msg = ();
+
+            for my $seq (keys %$s)
+            {
+                if (ref $s->{$seq} ne 'HASH')
+                {
+                    $msg{WARNING} = $s->{$seq};
+                    next;
+                }
+
+                next unless my $stat = $s->{$seq}{LOG};
+
+                my $age = int (($now - $stat->[9]) / 60) + 1;
+
+                $p->{$seq}{wedged} ||= $p->{default}{wedged};
+                $p->{$seq}{paused} ||= $p->{default}{paused};
+
+                my $msg = "for $age mins";
+ 
+                if (defined $s->{$seq}{SENTINEL})
+                {
+                    $msg{ERROR}{$seq} = "stuck $msg";
+                }
+                elsif (defined $s->{$seq}{PAUSE})
+                {
+                    if ($age > $p->{$seq}{paused})
+                    {
+                        $msg{ERROR}{$seq} = "paused $msg";
+                    }
+                    else
+                    {
+                        next;
+                    }
+                }
+                elsif ($age > $p->{$seq}{wedged})
+                { 
+                    $msg{ERROR}{$seq} = "wedged $msg";
+                }
+                else
+                { 
+                    next;
+                } 
+
+                my %alert;
+
+                for ( qw ( PAUSE ALERT ) )
+                {
+                    my $a = $s->{$seq}{$_};
+                    next unless $a || $a eq 'cluster-oncall-pager' || $a eq 'root';
+
+                    while ($a =~ /\G\s*([^\s,]+)\s*,?/g)
+                    {
+                        my $a = $1;
+                        $alert{$a} = 1 if $a ne 'cluster-oncall-pager' && $a ne 'root';
+                    }
+                }
+
+                $alert{'cluster-oncall-pager'} = 1 unless %alert;
+                my $alert = YAML::Syck::Dump \%alert; 
+                push @{$msg{ERROR}{alert}{$alert}}, $seq;
+            }
+
+            delete $msg{WARNING} if $msg{ERROR}; 
+
+            map { $result->{$host} = [ $_, YAML::Syck::Dump ($msg{$_}) ]
+                if $msg{$_} } qw ( WARNING ERROR );
+        }
+  
+        $o = (); delete $r->{$host};
+    }
+}

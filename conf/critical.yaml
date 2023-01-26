@@ -1,0 +1,2 @@
+dns: { QUERY_RANGE: '%{%proxy_dns}:VIPS' }
+watcher: { config: ssh_watcher, QUERY_RANGE: '%watcher' }

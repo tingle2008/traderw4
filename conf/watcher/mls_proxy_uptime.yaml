@@ -1,0 +1,15 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/proxy_uptime.yaml
+QUERY_COMMAND_TIMEOUT: 60
+
+FREQUENCY: 120
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR, UNKNOWN]
+    BATCH: 15
+    START: 1200
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp 'proxy uptime < 2m' mls-ops-notification@yahoo-inc.com (STATE)]

@@ -1,0 +1,254 @@
+#
+# A generic Handler which w4 invokes to process watcher results: it interprets
+# a time based escalation policy according to which it categorizes the watcher
+# results, and can invoke external commands to further process the categorized 
+# watcher results.
+#
+# NOTE: Just like any watcher tests, a handler is merely a *code* input to w4,
+# which has absolutely nothing to do with w4 itself, and is analogous to a
+# program, however fancy or crappy, running on an OS.
+#
+# Input parameters: see below
+#
+use strict;
+use warnings;
+use Seco::AwesomeRange;
+use YAML::Syck;
+
+return sub
+{
+    my (
+        $context,
+            #
+            # state info that persists between handler iterations
+            #
+        $params,
+            #
+            # w4/conf/watcher/*.yaml:RESULT_HANDLER_PARAMS
+            # a list of time based polices, with control variables: 
+            #
+            # - STATUS: a list of result stati a policy is interested in
+            # - BATCH : number of watcher iterations per handler iteration
+            # - EXEC  : a list of external commands to invoke on
+            #           results of interested stati/status
+            # - START : seconds since inital time beyond which EXEC is invoked
+            # - STOP  : seconds ..^^^.. beyond which EXEC is not to be invoked
+            # - REPEAT: seconds since previous check to repeat invoking EXEC
+            #
+        $results,
+            #
+            # watcher results indexed by host, status:host, and status:msg:host
+            # as a snippet from w4/bin/w4lib.pm shows,
+            # ...
+            # $watcher_results{host}{$host}=$r;
+            # $watcher_results{status_host}{$status}{$host}=$r;
+            # $watcher_results{status_msg_host}{$status}{$msg}{$host}=$r;
+            # ...
+            #
+        $watcher,
+            #
+            # test name, w4/conf/*.yaml:*
+            #
+        $config
+            #
+            # watcher name, w4/conf/(*).yaml
+            #
+    ) = @_;
+
+    #
+    # initialize, or reset state if parameters changed
+    #
+
+    unless (defined $$context && $$context->{params} eq $params)
+    {
+        my $policy = YAML::Syck::Load ($params);
+
+        die if ref $policy ne 'ARRAY';
+
+        #
+        # context = persistent state data, updated by each handler invocation
+        # and passed back to w4lib.pm to keep alive
+        #
+
+        $$context =
+        {
+            params => $params,    # current params as a string
+            policy => $policy,    # escalation policy
+            uniq   => {},         # mind fuck for efficiency
+                                  # - bad (nodes hash)
+                                  # - status (hash)
+            steps  => [],         # runtime data for each escalation
+                                  # - bad -> uniq->{bad}
+        };
+
+        #
+        # find identical interests (in node status) by different policies
+        # purpose: to process results just once for each uniq set of status
+        #
+
+        for my $i (0..$#{$$context->{policy}})
+        {   
+            my $policy = $$context->{policy}[$i];
+
+            #
+            # normalize interested status
+            #
+
+            my $status = $policy->{STATUS};
+            next unless defined $status && ref $status eq 'ARRAY' && @$status;
+
+            my %status = map { $_ => 1 } @$status;
+            my $s = join ',', sort keys %status;
+
+            #
+            # link policy data to normalized (uniq)
+            #
+
+            my $uniq = $$context->{uniq};
+
+            unless (defined $uniq->{$s})
+            {
+                $uniq->{$s}{status} = \%status;
+                $uniq->{$s}{bad} = {};
+            }
+
+            my $steps = $$context->{steps};
+            my $batch = $policy->{BATCH};
+
+            $steps->[$i]{bad} = $uniq->{$s}{bad};
+            $steps->[$i]{batch} = $batch && $batch =~ /^\d+$/ ? $batch : 1;
+            $steps->[$i]{count_down} = $steps->[$i]{batch};
+        }
+    }
+
+    #
+    # process results for each uniq set of status
+    #
+
+    my $now=time;
+
+    for my $this (values %{$$context->{uniq}})
+    {
+        # 
+        # delete no-longer-bad nodes
+        # 
+
+        map
+        {
+            delete $this->{bad}{$_} unless
+                defined $results->{host}{$_} &&
+                defined $this->{status}{$results->{host}{$_}{status}}
+        }
+        keys %{$this->{bad}};
+
+        #
+        # find still/new bad nodes
+        #
+
+        for my $status (keys %{$this->{status}})
+        {   
+            for my $node (keys %{$results->{status_host}{$status}})
+            {   
+                # previously known bad node
+
+                if (defined $this->{bad}{$node})
+                {
+                    $this->{bad}{$node}{count} += 1;
+                    next;
+                }
+
+                # node is newly bad
+                
+                $this->{bad}{$node}{timestamp} = $now;       # bad since
+                $this->{bad}{$node}{last_time} = $now;    # last checked
+                $this->{bad}{$node}{count} = 1;   # number of iterations
+            }
+        }
+    }
+
+    #
+    # escalate according to each policy
+    #
+
+    for my $i (0..$#{$$context->{policy}})
+    {
+        my $policy = $$context->{policy}[$i];
+        my $this = $$context->{steps}[$i];
+
+        next if -- $this->{count_down};
+        $this->{count_down} = $this->{batch};
+
+        my @nodes;
+
+        #
+        # process each bad node (defined in the previous loop)
+        #
+ 
+        while (my ($node, $stat) = each %{$this->{bad}})
+        {
+            my $since_first_time  = $now - $stat->{timestamp};
+            my $since_last_time = $now - $stat->{last_time};
+
+            #
+            # if START, STOP, REPEAT are not defined, alert anyways
+            #
+
+            next if defined $policy->{START}
+                    && $since_first_time < $policy->{START};
+
+            next if defined $policy->{STOP}
+                    && $since_first_time > $policy->{STOP};
+
+            next if defined $policy->{REPEAT} && $since_last_time > 0
+                    && $since_last_time < $policy->{REPEAT};
+
+            $stat->{last_time} = $now;
+            push @nodes, $node;
+        }
+
+        #
+        # compile and stringify state info to be passed to external commands
+        #
+
+        next unless @nodes &&
+            defined $policy->{EXEC} && ref $policy->{EXEC} eq 'ARRAY';
+
+        my (%state, $nodes);
+
+        map 
+        {
+            $state{watcher} = $config;
+            $state{test} = $watcher;
+            $state{node}{$_}{timestamp} = $this->{bad}{$_}{timestamp};
+            $state{node}{$_}{count} = $this->{bad}{$_}{count};
+            $state{node}{$_}{msg} = $results->{host}{$_}{msg};
+            $nodes .= "$_,"; # FIXME, this is really getto, but not yet used 
+        } @nodes;
+
+        my $state = YAML::Syck::Dump(\%state);
+
+        #
+        # invoke each external command
+        #
+
+        for (@{$policy->{EXEC}})
+        {
+            #
+            # feed state info via STDIN if requested
+            #
+
+            my $cmd = $_;
+
+            if ($cmd !~ s/\(STATE\)//)
+            {
+                chop $nodes;
+                system("$cmd $nodes");
+                next;
+            }
+
+            open  CMD, "|$cmd" or die "cannot fork for $cmd\n";
+            print CMD $state;
+            close CMD;
+        }
+    }
+};

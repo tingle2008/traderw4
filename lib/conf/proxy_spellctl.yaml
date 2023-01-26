@@ -1,0 +1,5 @@
+TEST:
+  PORT:  55555
+  QUERY: "idp\nclient:inktomi\n\nSPELLCTRL\nstatus\n\n"
+  ERROR:
+    _NOT_: 'spelling\s+status\s+ENABLE'

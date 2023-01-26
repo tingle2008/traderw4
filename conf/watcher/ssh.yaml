@@ -1,0 +1,25 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/ssh.yaml
+QUERY_COMMAND_TIMEOUT: 480
+
+FREQUENCY: 3600
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR, UNKNOWN]
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -q -sp 'SSH down' -csv timestamp -zt Support -zp P2 -zc 'Diagnosis Needed' -za yst-breakfix@yahoo-inc.com -zcc yst-breakfix@yahoo-inc.com -zq yes -fr kanliu@yahoo-inc.com bug2jumbo (STATE)]
+  -
+    STATUS: [ERROR, UNKNOWN]
+    START: 7200
+    REPEAT: 3600
+    STOP: 12000
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -mp 'SSH down > 2h' cluster-ops-pager-1 (STATE)]
+  -
+    STATUS: [ERROR, UNKNOWN]
+    START: 14000
+    REPEAT: 3600
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -mp 'SSH down > 4h' cluster-ops-pager-2 (STATE)]
+

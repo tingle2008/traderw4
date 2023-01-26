@@ -1,0 +1,27 @@
+#
+# default config for w4 in yaml
+# wathcer config can override any key.
+#
+
+# run every FREQUENCY seconds. if 0 run continuously
+FREQUENCY : 60
+# run watcher using MAX_THREADS
+MAX_THREADS: 5
+# send MAX_RANGE hosts to each thread at once
+MAX_RANGE: 10
+
+# list of hosts using SECO syntax
+QUERY_RANGE: ""
+
+# watcher command defined in lib/watchercmd
+QUERY_COMMAND: ""
+# watcher command parameters for lib/watchercmd
+QUERY_COMMAND_PARAMS: ""
+# max time for watcher to work on MAX_RANGE hosts
+QUERY_COMMAND_TIMEOUT: 60
+
+# result handler defined in lib/handler
+RESULT_HANDLER: ""
+# result handler parameters for lib/watcher
+RESULT_HANDLER_PARAMS: ""
+

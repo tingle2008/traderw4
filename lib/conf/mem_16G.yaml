@@ -1,0 +1,6 @@
+PING: 0
+TEST:
+  PORT:  12345
+  QUERY: 'nobody head -n 1 /proc/meminfo'
+  ERROR:
+    _NOT_: - ['\S+:\s+(\d+)', "$1 > 16000000"] 

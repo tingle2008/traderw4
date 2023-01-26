@@ -1,0 +1,5 @@
+df: { config: cbw_df, QUERY_RANGE: '%courier' }
+cbw: { config: cbw, QUERY_RANGE: '%courier_repeaters_ac2:VIPHOSTS,%courier_repeaters_gq1:VIPHOSTS' }
+master: { config: cbw_master, QUERY_RANGE: 'courierbtmaster' }
+vips: { config: vips, QUERY_RANGE: 'courier_repeaters_ac2,courier_repeaters_gq1' }
+echo: { QUERY_RANGE: everything }

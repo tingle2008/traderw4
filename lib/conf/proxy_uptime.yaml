@@ -1,0 +1,5 @@
+TEST:
+  PORT:  55555
+  QUERY: "idp\nclient:inkdev\n\nPROXY\nproxy uptime\n\n"
+  ERROR:
+    _NOT_: - [proxy\s+uptime\s+(\d+), "$1 > 120"]

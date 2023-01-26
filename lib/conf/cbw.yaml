@@ -1,0 +1,4 @@
+TEST:
+  PORT: 12345
+  QUERY: 'nobody cbw'
+  ERROR: '[^\n]*failed[^\w\n]*'

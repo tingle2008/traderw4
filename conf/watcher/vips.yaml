@@ -1,0 +1,32 @@
+QUERY_COMMAND: vips
+QUERY_COMMAND_PARAMS: 'PING 4'
+QUERY_COMMAND_TIMEOUT: 120
+
+FREQUENCY: 90
+MAX_THREADS: 4
+MAX_RANGE: 5
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [WARNING, UNKNOWN]
+    START: 0
+    REPEAT: 3600
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg watcherbot (STATE)]
+  -
+    STATUS: [ERROR]
+    START: 300
+    REPEAT: 300
+    STOP: 1200
+    EXEC: [/home/watcher/w4/bin/alert_generic cluster-ops-pager-1 (STATE)]
+  -
+    STATUS: [ERROR]
+    START: 1500
+    REPEAT: 300
+    STOP: 2400
+    EXEC: [/home/watcher/w4/bin/alert_generic cluster-ops-pager-2 (STATE)]
+  -
+    STATUS: [ERROR]
+    START: 2700
+    REPEAT: 300
+    EXEC: [/home/watcher/w4/bin/alert_generic cluster-ops-pager-3 (STATE)]

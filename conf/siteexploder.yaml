@@ -1,0 +1,6 @@
+seapi: { QUERY_RANGE: '%seapi-east,%seapi-west' }
+vips: { QUERY_RANGE: 'seapi-east,seapi-west' }
+sedb: { QUERY_RANGE: '%sedb' }
+sebe: { QUERY_RANGE: '%siteexplorer:SEBE' }
+oracle: { config: sebe_oracle_svc, QUERY_RANGE: '%siteexplorer:SEBE' }
+echo: { QUERY_RANGE: everything }

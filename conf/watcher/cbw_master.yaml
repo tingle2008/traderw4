@@ -1,0 +1,15 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/cbw_master.yaml
+QUERY_COMMAND_TIMEOUT: 60
+
+FREQUENCY: 600
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR, UNKNOWN]
+    BATCH: 3
+    START: 360
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -csv msg yst-courier-alerts@yahoo-inc.com (STATE)]

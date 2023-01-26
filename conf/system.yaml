@@ -1,0 +1,5 @@
+dns: { config: dns_age, QUERY_RANGE: '%%all:runtime_yst' }
+mem: { config: mem_16G, QUERY_RANGE: '%list:MEM16G,-%yrt' }
+ssh: { QUERY_RANGE: '@ADMIN,-@ADMINPULL,-%yrt,-meihua,-voodoo' }
+A24Y16: { QUERY_RANGE: '%list:MODEL_A24Y16_UP' }
+echo: { QUERY_RANGE: everything }

@@ -1,0 +1,289 @@
+#!/usr/local/bin/perl -w
+#
+# Generic alert handler script
+#
+# reads a YAML file from STDIN and alert by email
+#
+use strict;
+use warnings;
+use YAML::Syck;
+use Seco::AwesomeRange;
+use Getopt::Long qw(:config no_ignore_case);
+
+#
+# usage
+#
+
+my %o;
+$o{fr} = 'watcher';
+
+my %options =
+(
+    'h|help'            => 'show help',
+    'e|expand'          => 'expand nodes (default to range)',
+    'p|error-pull'      => 'run error-pull (slow and dangerous)',
+    'ep|evil-pull'      => 'run evil-pull (slow and dangerous)',
+    'q|quiet'           => 'do not print email',
+    'n|dry-run'         => 'do not send email (debug)',
+    'ns|no-sum'         => 'do not summarize the total',
+    's|subject=s'       => 'replace default subject',
+    'sum'               => 'summarize number of nodes',
+    'sa=s'              => 'append to subject',
+    'sp=s'              => 'prepend to subject',
+    'ma=s'              => 'append to message',
+    'mp=s'              => 'prepend to message',
+    'fr=s'              => "fr address (default $o{fr})",
+    'to=s'              => "to address\n",
+    'cc=s'              => 'cc address',
+    'csv=s'             => 'sort by metrics (msg,timestamp,cluster,count)',
+
+     # bugzilla specific options
+
+    'zk|bz-keyword=s'   => '@keyword = ',
+    'zs|bz-severity=s'  => '@bug_severity = ',
+    'za|bz-assign=s'    => '@assigned_to = ',
+    'zd|bz-desc=s'      => '@short_desc = ',
+    'zt|bz-type=s'      => '@bugtype = ',
+    'zc|bz-component=s' => '@component = ',
+    'zP|bz-product=s'   => '@product = ',
+    'zp|bz-priority=s'  => '@priority = ',
+    'zq|bz-quiet=s'     => '@quiet = ',
+    'zl|bz-url=s'       => '@url = ',
+    'zcc|bz-cc=s'       => '@cc = ',
+);
+
+#
+# get ops
+#
+
+if (!GetOptions (\%o, keys %options) || $o{h} || !(@ARGV || $o{to}))
+{
+    my $usage = "\nUsage:  $0 address\n";
+
+    exit _print_opt (\%options, $usage);
+}
+
+#
+# get to and cc
+#
+
+my (%to, @cc, $cc);
+
+push @ARGV, $o{to} if defined $o{to};
+map { $to{$1} = 1 while $_ =~ /\G\s*([^\s,]+)\s*,?/g } @ARGV;
+
+my @to = keys %to;
+my $to = join ',', @to;
+
+if (defined $o{cc})
+{
+    my %cc;
+    $cc{$1} = 1 while $o{cc} =~ /\G\s*([^\s,]+)\s*,?/g;
+    @cc = keys %cc;
+    $cc = join ',', @cc;
+}
+
+#
+# load state
+#
+
+my $yaml = '';
+map { $yaml .= $_ } <STDIN>;
+my $state = YAML::Syck::Load($yaml);
+
+my $test = $state->{test};
+my $watcher = $state->{watcher};
+$state = $state->{node};
+
+my @nodes = keys %$state;
+exit 0 unless @nodes;
+
+#
+# run error-pull and record status 
+#
+
+if (($o{p} || $o{ep}) && !$o{n})
+{
+    for my $node (keys %$state)
+    {
+        my $msg = $state->{$node}{msg};
+        $msg =~ s/^-+\s*//;
+        $msg =~ s/\n/ | /g;
+
+        my $cmd = $o{ep} ? "/home/seco/releases/bin/evil-pull.pl -r $node" :
+            "/home/seco/releases/bin/error-pull.pl -r $node --quality --badreason '$msg'";
+
+        print STDERR "attempting to pull $node .. ";
+        $msg = (`$cmd 2>&1`)[-1];
+        chomp $msg;
+        $msg = "Successfully pulled" unless $?;
+        print STDERR "$msg\n";
+        $state->{$node}{EPRC} = $msg;
+    }
+}
+
+my %state;
+
+#
+# process csv
+#
+
+if ($o{csv})
+{
+    #
+    # get valid metric names
+    #
+
+    my (@csv, %uniq);
+    my $peek = $state->{$nodes[0]};
+
+    while ($o{csv} =~ /\G\s*([^\s,]+)\s*,?/g)
+    {
+        next if $uniq{$1} || (! defined $peek->{$1}) && $1 ne 'cluster';
+        $uniq{$1} = 1;
+        push @csv, $1
+    }
+
+    if (defined $uniq{cluster})
+    {
+        my %cluster; 
+
+        for my $node (@nodes)
+        {
+            my $cluster;
+
+            unless (defined ($cluster = $cluster{$node}))
+            {
+                $cluster = (Seco::AwesomeRange::expand_range ('*'.$node))[0];
+
+                map { $cluster{$_} => 1 }
+                    Seco::AwesomeRange::expand_range ('%'.$cluster);
+
+                $cluster ||= 'nocluster';
+            }
+
+            $state->{$node}{cluster} = $cluster;
+        }
+
+        %cluster = ();
+    }
+
+    #
+    # create csv hash
+    #
+
+    if (@csv)
+    {
+        my %ptr;
+
+        for my $node (sort @nodes)
+        {
+            #
+            # iteratively create each hash level
+            #
+
+            my $s = \%state;
+    
+            for my $i (0..@csv-2)
+            { 
+                my $csv = $state->{$node}{$csv[$i]};
+                $s->{$csv} = {} unless defined $s->{$csv};
+                $s = $s->{$csv};
+            }
+
+            #
+            # the stub is list
+            #
+
+            $s = \ $s->{$state->{$node}{$csv[-1]}}; 
+            push @$$s, $node;
+
+            $ptr{$s} = $s unless $o{e};
+
+            $state->{$node} = {}; 
+            delete $state->{$node};
+        }
+
+        #
+        # compress results
+        #
+
+        map { $$_ = Seco::AwesomeRange::compress_range($$_) } values %ptr
+            unless $o{e};
+
+        $o{csv} = join ',', @csv;
+    }
+}
+
+#
+# compose mail
+#
+
+my $nodes = Seco::AwesomeRange::compress_range (@nodes);
+
+my $subject = '';
+$subject .= "$o{sp} " if defined $o{sp};
+$subject .= defined $o{s} ? $o{s} : "w4 $watcher -t $test -r $nodes";
+$subject .= " $o{sa}" if defined $o{sa};
+
+my $mail = "To: $to\nSubject: $subject\n\n";
+
+for my $key (keys %options)
+{
+    next unless $options{$key} =~ /^@/ && $key =~ /^([^=|]+)/ && defined $o{$1};
+    $mail .= $options{$key}.$o{$1}."\n";
+}
+
+$mail .= "\n$o{mp}\n" if defined $o{mp};
+
+if (%state)
+{
+    my $state = YAML::Syck::Dump \%state;
+    $state =~ s/---\s+//g;
+    $mail .= $state;
+    $mail .= "\nsorted by $o{csv}\n";
+}
+
+unless ($o{ns})
+{
+    my $sum = int @nodes;
+    $mail .= "Total: $sum";
+}
+
+$mail .= "\n$nodes\n";
+$mail .= "$o{ma}\n" if defined $o{ma};
+
+#
+# send mail
+#
+
+print $mail unless $o{q};
+_mail ($o{fr}, \@to, \@cc, $mail) unless $o{n}; 
+
+###############################################################################
+
+sub _mail
+{
+    require Net::SMTP;
+    my ($from, $to, $cc, $mail) = @_;
+
+    my $smtp=Net::SMTP->new('localhost');
+    die "Net::SMTP->new: $!" unless defined $smtp;
+
+    $smtp->mail($from);
+    $smtp->to(@$to);
+    $smtp->cc(@$cc);
+    $smtp->data($mail);
+    $smtp->quit;
+}
+
+sub _print_opt
+{
+    my ($options, $usage) = @_;
+        
+    map { $usage .= sprintf "\n  -%s | --%-10s %s", $1, $2 ? $2 : $1,
+        $options->{$_} if $_ =~ qr /(\w+)(?:\|(\w+))?=?/o } sort keys %$options;
+            
+    printf "%s\n\n", $usage;
+    return 0; 
+}

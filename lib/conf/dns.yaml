@@ -1,0 +1,14 @@
+gq1:
+    '{%all:jumbo_west,idpproxy-relay2}.cluster.inktomisearch.com'
+
+cc1:
+    '{%all:jumbo_west,idpproxy-relay2}.cluster.inktomisearch.com'
+
+sk1:
+    '{%all:jumbo_west,idpproxy-relay1}.cluster.inktomisearch.com'
+
+ac2:
+    '{%all:jumbo_east,idpproxy-relay1}.cluster.inktomisearch.com'
+
+ac4:
+    '{%all:jumbo_east,idpproxy-relay1}.cluster.inktomisearch.com'

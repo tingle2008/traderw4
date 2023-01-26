@@ -1,0 +1,4 @@
+fmqw: { QUERY_RANGE: '%%all:jumbo' }
+disk: { config: dmesg_disk_error, QUERY_RANGE: '%%all:jumbo,%%tree' }
+db: { config: db_kk, QUERY_RANGE: %all:kk }
+echo: { QUERY_RANGE: everything }

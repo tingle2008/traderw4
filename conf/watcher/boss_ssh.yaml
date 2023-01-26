@@ -1,0 +1,15 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/ssh.yaml
+QUERY_COMMAND_TIMEOUT: 480
+
+FREQUENCY: 60
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR, UNKNOWN]
+    START: 360
+    REPEAT: 600
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -mp 'unreachable/unsshable' watcherbot page-boss-gateway@yahoo-inc.com (STATE)]

@@ -1,0 +1,145 @@
+#
+# States:
+#
+#   OK:
+#     - vip to host mapping matches vips.cf
+#
+#   ERROR:
+#     - vip not pingable
+#     - vip on wrong host
+#
+#   WARNING:
+#     - cluster has no vips
+#
+#   UNKNOWN:
+#     - vip unreachable via manateed
+#
+use strict;
+use YAML::Syck;
+use Seco::MultipleTcp;
+
+return sub
+{
+    my ($result, $params, @clusters) = @_;
+
+    return unless @clusters;
+
+    my %p = $params =~ /\s*([^\s"]+|"[^"]*")\s*/g;
+    map { $p{$_} =~ s/^"([^"]+)"$/$1/ } keys %p;
+
+    my (%clusters, @vips);
+
+    while (@clusters)
+    {
+        my $cluster = shift @clusters;
+        my $vips_cf = "/home/seco/tools/conf/$cluster/vips.cf";
+        my (%vips, %hosts, $fh);
+
+        if (-f $vips_cf && open ($fh, $vips_cf))
+        {
+            while (<$fh>)
+            {
+                next if $_ !~ /^\s*(\d+\.\d+\.\d+\.\d+)\s+([^#\s]+)\s+/;
+                $vips{$1} = $2;
+                push @vips, $1;
+                push @{$hosts{$2}}, $1;
+            }
+        }
+
+        unless (keys %vips)
+        {
+            $result->{$cluster} = ['WARNING','invalid cluster or no vips'];
+            next;
+        }
+
+        $result->{$cluster} = ['OK', 'OK'];
+        $clusters{$cluster} = \%vips;
+
+        if (keys %vips > keys %hosts)
+        { 
+            $result->{$cluster} = ['WARNING', 'more vips than hosts!'];
+            next;
+        }
+
+        map { delete $hosts{$_} if @{$hosts{$_}} == 1 } keys %hosts;
+
+        if (my @h = keys %hosts)
+        {
+            my $o = w4Range::compress_range @h; 
+            $result->{$cluster} = ['WARNING', "$o: overvipped!" ]
+        }
+    }
+
+    return unless @vips;
+
+    my $mtcp = new Seco::MultipleTcp;
+    my $cmd = "hostname\n";
+    my $port = 12345;
+
+    $mtcp -> global_timeout (0);
+    $mtcp -> sock_timeout (30);
+    $mtcp -> minimum_time (0);
+    $mtcp -> maxflight (100);
+    $mtcp -> writebuf ($cmd);
+    $mtcp -> nodes (@vips);
+    $mtcp -> port ($port);
+
+    my $r = $mtcp -> run();
+
+    @vips = ();
+
+    foreach my $cluster (keys %clusters)
+    {
+        my $vips = $clusters{$cluster};
+        my (%msg, @down);
+
+        my $count = $p{PING} || 2;
+        my @vips = keys %$vips;
+        my @pong = `fping -u -C $count @vips 2>&1`;
+
+        while (@pong)
+        {   
+            my ($node, $stat) = split / :/, shift @pong;
+
+            if ($stat =~ /^(?: -)+$/) ## unpingable
+            {
+                delete $vips->{node};
+                push @down, $node;
+            }
+        }
+
+        $msg{ERROR}{unpingable} = w4Range::compress_range (@down) if @down;
+
+        foreach my $vip (keys %$vips)
+        {
+            my $o = $r->{$vip};
+            my $s;
+
+            my $hostname = $vips->{$vip};
+            delete $vips->{$vip};
+
+            if (! defined $o || ($s = $o->error()) || ($s = $o->write_error())
+                || ($s = $o->read_error()) || (! ($s = $o->readbuf()))
+                && ($s = "$port not responsive"))
+            {
+                chomp $s;
+                push @{$msg{UNKNOWN}{$s}}, $vip;
+            }
+            elsif ($s ne "$hostname\n")
+            {
+                $s = "not on $hostname but $s";
+                chomp $s;
+                push @{$msg{ERROR}{$s}}, $vip;
+            }
+  
+            delete $r->{$vip};
+        }
+
+        delete $clusters{$cluster};
+        next unless %msg;
+
+        $result->{$cluster} = defined $msg{ERROR} ? 
+            ['ERROR', YAML::Syck::Dump $msg{ERROR}] :
+            ['UNKNOWN', YAML::Syck::Dump $msg{UNKNOWN}];
+    }
+}

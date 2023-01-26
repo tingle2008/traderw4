@@ -1,0 +1,4 @@
+spellctl: { config: proxy_spellctl, QUERY_RANGE: '%%all:proxy,-%%all:proxy_cn2,-%idpproxy_{relay,test,cleo}1-2,-%idpproxy_opstest' }
+uptime: { config: proxy_uptime, QUERY_RANGE: '%%all:{proxy_yst,proxy_ysp,cache,spell},%%tree:{%tree:prod_masters},-%mkp331-6,-%mkp341-6' }
+spell_query: { QUERY_RANGE: '%%all:spell' }
+vips: { config: vips, QUERY_RANGE: '%all:{proxy,cache},-idpproxy_{relay,test,stage}1-2' }

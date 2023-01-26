@@ -1,0 +1,142 @@
+#!/usr/local/bin/perl -w
+#
+# Generic alert handler script
+#
+# reads a YAML file from STDIN and alert by email
+#
+use strict;
+use warnings;
+use YAML::Syck;
+use Seco::AwesomeRange;
+use Getopt::Long qw(:config no_ignore_case);
+
+#
+# usage
+#
+
+my %o;
+$o{fr} = 'watcher';
+
+my %options =
+(
+    'h|help'            => 'show help',
+    'q|quiet'           => 'do not print email',
+    'n|dry-run'         => 'do not send email (debug)',
+    's|subject=s'       => 'replace default subject',
+    'sa=s'              => 'append to subject',
+    'sp=s'              => 'prepend to subject',
+    'ma=s'              => 'append to message',
+    'mp=s'              => 'prepend to message',
+    'fr=s'              => "fr address (default $o{fr})",
+    'to=s'              => "to address\n",
+    'cc=s'              => 'cc address',
+);
+
+#
+# get ops
+#
+
+if (!GetOptions (\%o, keys %options) || $o{h})
+{
+    my $usage = "\nUsage:  $0 address\n";
+    exit _print_opt (\%options, $usage);
+}
+
+#
+# load state
+#
+
+my $yaml = '';
+map { $yaml .= $_ } <STDIN>;
+my $state = YAML::Syck::Load($yaml);
+my $test = $state->{test};
+my $watcher = $state->{watcher};
+$state = $state->{node};
+
+my @nodes = keys %$state;
+exit 0 unless @nodes;
+
+
+#
+# get to and cc
+#
+
+my (%to, @cc);
+
+push @ARGV, $o{to} if defined $o{to};
+
+if (@ARGV)
+{
+    map { $to{$1} = $1 while $_ =~ /\G\s*([^\s,]+)\s*,?/g } @ARGV;
+}
+else
+{
+    $to{'cluster-ops-pager-1'} = 1;
+}
+
+if (defined $o{cc})
+{
+    my %cc;
+    $cc{$1} = 1 while $o{cc} =~ /\G\s*([^\s,]+)\s*,?/g;
+    @cc = keys %cc;
+}
+
+for my $node (keys %$state)
+{
+    my $s = YAML::Syck::Load $state->{$node}{msg};
+    my $a = $s->{alert};
+
+    my $subject = '';
+
+    $subject .= "$o{sp} " if defined $o{sp};
+    $subject .= defined $o{s} ? $o{s} : "w4 $watcher -t $test -r $node";
+    $subject .= " $o{sa}" if defined $o{sa};
+
+    for my $key (keys %$a)
+    { 
+        my $alert = YAML::Syck::Load $key;
+       
+        %to = %$alert unless @ARGV && $alert->{'cluster-oncall-pager'};
+
+        my @to = keys %to;
+        my $to = join ',', @to; 
+
+        my $mail = "To: $to\nSubject: $subject\n\n";
+
+        $mail .= "\n$o{mp}\n" if defined $o{mp};
+        map { $mail .= " $_ is ". $s->{$_} . "\n" } @{$a->{$key}};
+        $mail .= "$o{ma}\n" if defined $o{ma};
+
+        print $mail unless $o{q};
+        _mail ($o{fr}, \@to, \@cc, $mail) unless $o{n}; 
+    } 
+}
+
+
+###############################################################################
+
+sub _mail
+{
+    require Net::SMTP;
+    my ($from, $to, $cc, $mail) = @_;
+
+    my $smtp=Net::SMTP->new('localhost');
+    die "Net::SMTP->new: $!" unless defined $smtp;
+
+    $smtp->mail($from);
+    $smtp->to(@$to);
+    $smtp->cc(@$cc);
+    $smtp->data($mail);
+    $smtp->quit;
+}
+
+sub _print_opt
+{
+    my ($options, $usage) = @_;
+        
+    map { $usage .= sprintf "\n  -%s | --%-10s %s", $1, $2 ? $2 : $1,
+        $options->{$_} if $_ =~ qr /(\w+)(?:\|(\w+))?=?/o } sort keys %$options;
+            
+    printf "%s\n\n", $usage;
+    return 0; 
+}

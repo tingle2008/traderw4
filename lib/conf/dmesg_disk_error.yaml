@@ -1,0 +1,10 @@
+PING: 0
+TEST:
+  PORT: 12345
+  QUERY: 'dmesg'
+  ERROR:
+    DISK: '[^\n\d]*\b(?:scsi|ext|ata|i/o)\d? *(?:-fs|:)? *error[^\d\n]*'
+    MPTS:
+      - '[^\n]*mptscsi[: \w\d]+(?:reset|abort|timeout|error)[^\w\n]*'
+      - '[^\n]*mptbase:\s+ioc\d+:\sIOCStatus=\d+[^\n]+Code={(?:Abort|Reset)[^\n]*'
+    MISC: '[^\n]*temperature +above[^\n]*'

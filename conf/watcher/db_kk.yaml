@@ -1,0 +1,15 @@
+QUERY_COMMAND: db
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/db_kk.yaml
+QUERY_COMMAND_TIMEOUT: 600
+
+FREQUENCY: 3600
+MAX_THREADS: 1
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR, WARNING]
+    START: 0
+    REPEAT: 86400
+    EXEC: [/home/watcher/w4/bin/alert_by_csv --csv msg watcherbot bjc@yahoo-inc.com ankurg@yahoo-inc.com (STATE)]

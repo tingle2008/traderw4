@@ -1,0 +1,72 @@
+#
+# Input parameters:
+#
+#  a YAML config file that contains a map of colos and range of records to check
+#
+# States:
+#
+#   OK:
+#     - no error found
+#
+#   WARNING:
+#     - colo is not defined in config
+#     - no record to check for a colo
+#
+#   ERROR:
+#     - cannot resolve
+#
+use Seco::AwesomeRange;
+use Net::hostent;
+use YAML::Syck;
+use strict;
+
+return sub
+{
+    my ($result,$params,@vips)=@_;
+
+    return unless -f $params && @vips;
+
+    ## load parameters
+
+    my $p = YAML::Syck::LoadFile ($params);
+
+    return unless defined $p && ref $p eq 'HASH';
+
+    my (%seen, %dns);
+
+    for my $dc (keys %$p)
+    {
+        my $r = $p->{$dc};
+        $seen{$r} = [ Seco::AwesomeRange::expand_range ($r) ] unless $seen{$r};
+        $dns{lc $dc} = $seen{$r};
+    }
+
+    for my $vip (@vips)
+    {
+        $result->{$vip} = ['OK', 'OK'];
+
+        my $dc = Seco::AwesomeRange::expand_range ("dc($vip)");
+
+        unless ($dc)
+        {   
+            $result->{$vip} = ['WARNING', "colo not defined in $params"];
+            next;
+        }
+
+        my $records = $dns{lc $dc};
+
+        unless (@$records)
+        {
+            $result->{$vip} = ['WARNING', "no record to check in $params"];
+            next;
+        }
+
+
+        for my $r (@$records)
+        {
+            next if Net::hostent::gethost ($r);
+            $result->{$vip} = ['ERROR', "cannot resolve $r"];
+            last;
+        }
+    }
+};

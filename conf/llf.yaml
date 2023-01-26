@@ -1,0 +1,4 @@
+df: { config: llf_df, QUERY_RANGE: '%%all:llf' }
+ssh: { config: llf_ssh, QUERY_RANGE: '%%all:llf' }
+checkfs: { config: llf_checkfs, QUERY_RANGE: '%%all:llf' }
+echo: { QUERY_RANGE: everything }

@@ -1,0 +1,71 @@
+# Reference:  http://twiki.corp.yahoo.com/view/Yst/SimonAdminGuide
+# Example:  http://74.6.191.41:4080//Aggregator/data?format=text&mode=current&cluster=idpproxy_yahoo1
+
+CONF: /home/seco/releases/clients/simon.tcl
+CIDF: /home/seco/releases/clients/clusterAccess.tcl
+PORT: 4080
+DATA: Aggregator/data
+MODE: 'format=text&mode=current'
+
+GREED: 3
+#  where
+#   0: return with errors for one ID for one metric
+#   1: return with errors for each ID for one metric
+#   2: return with errors for one ID for each metric
+#   3: return with errors for each ID for each metric
+
+# "special" variable that may be called by EVAL:
+# $cluster: name of the current cluster
+
+EVAL:
+
+  ## Error by Client: (for each client)
+  ## rate of all errors over QPS > x
+
+  'E+C/*/0':
+    - 
+      pretest: '{W+C}{$1}{$2}{QPS} > 1' 
+      test: '{TOTAL} / {W+C}{$1}{$2}{QPS} > 3'
+
+  ## Error by Node: errors per node > x of total
+
+  E+N:
+    - 
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10 && {E+T}{TOTAL} / {W+T}{QPS} > 1.2'
+      test: '{TOTAL} / {E+T}{TOTAL} > 0.9'
+
+  ## Error Total: rate of each type of error over QPS > x
+
+  E+T:
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR500} / {W+T}{QPS} > 3'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR501} / {W+T}{QPS} > 3'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR502} / {W+T}{QPS} > 3'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR503} / {W+T}{QPS} > 3'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR504} / {W+T}{QPS} > 3'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{CLSTR505} / {W+T}{QPS} > 3'
+    -
+      pretest: '(!{INTERNAL}) && {W+T}{QPS} > 10'
+      test: '{TOTAL} / {W+T}{QPS} > 3'
+
+  CM+N:
+    -
+      pretest: '!{INTERNAL}'
+      test: '{QPS} > 0.25 * {CM+T}{QPS} && {LAT} > 1.1 * {CM+T}{LAT}'
+
+  SYS+N:
+    -
+      pretest: '{CM+N}{$1}{MISLAT} > 0.7'
+      test: '{CPU} > 2 * {SYS+T}{CPU} && {DISK} > 1.5 * {SYS+T}{DISK}'
+

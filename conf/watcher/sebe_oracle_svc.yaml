@@ -1,0 +1,27 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/sebe_oracle_svc.yaml
+QUERY_COMMAND_TIMEOUT: 120
+
+FREQUENCY: 90
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR]
+    BATCH: 4
+    START: 360
+    STOP: 720
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp '/service/sb_oracle_rrd log not updated > 6m, stuck?' cluster-ops-pager-1 yst-siteexp-alert@yahoo-inc.com (STATE)]
+  -
+    STATUS: [ERROR]
+    BATCH: 4
+    START: 1080
+    STOP: 1800
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp '/service/sb_oracle_rrd log not updated > 12m, stuck?' cluster-ops-pager-2 yst-siteexp-alert@yahoo-inc.com (STATE)]
+  -
+    STATUS: [ERROR]
+    BATCH: 4
+    START: 2000
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp '/service/sb_oracle_rrd log not updated > 30m, stuck?' cluster-ops-pager-3 yst-siteexp-alert@yahoo-inc.com (STATE)]

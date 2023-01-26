@@ -1,0 +1,94 @@
+#
+# Input parameters: (default values)
+#
+#   threshold: partition names and the max % used separated by ','  (ALL=80)
+#
+# States:
+#
+#   OK:
+#     - disk usage is below threshold for all specified partitions
+#
+#   UNKNOWN:
+#     - unreachable
+#
+#   ERROR:
+#     - disk usage is above threshold for any specified partition
+#
+# Equivalent test command:
+#
+#   mssh -r %range 'df -l'
+#
+use Seco::MultipleTcp;
+use strict;
+
+return sub
+{
+    my ($result,$params,@hosts)=@_;
+
+    return unless @hosts;
+
+    my %p = $params =~ /\s*([^\s"]+|"[^"]*")\s*/g;
+    map { $p{$_} =~ s/^"([^"]+)"$/$1/ } keys %p;
+
+    my $threshold = defined $p{threshold} ? $p{threshold} : 'ALL=80';
+    my $timeout = defined $p{timeout} ? $p{timeout} : 0;
+    my $cmd = "nobody df -l\n";
+    my $port = 12345;
+
+    my %t;
+    $t{$1} = $2 while $threshold =~ /\G\s*(ALL|\/[^=]*)\s*=\s*(\d+)%?\s*,?/g;
+
+    my $mtcp = new Seco::MultipleTcp;
+
+    $mtcp -> global_timeout ($timeout);
+    $mtcp -> sock_timeout (30);
+    $mtcp -> minimum_time (0);
+    $mtcp -> maxflight (100);
+    $mtcp -> writebuf ($cmd);
+    $mtcp -> nodes (@hosts);
+    $mtcp -> port ($port);
+
+    my $r = $mtcp -> run();
+
+    while (@hosts)
+    {
+        my $host = shift @hosts;
+        my $obj = $r->{$host};
+        my ($s, @s);
+
+        if (! defined $obj || ($s = $obj->error())
+            || ($s = $obj->write_error()) || ($s = $obj->read_error()) 
+            || (! ($s = $obj->readbuf())) && ($s = "port not responsive") 
+            || (@s = split /\n/, $s) < 2 && ($s = 'invalid df format'))
+        {
+            chomp $s;
+            $result->{$host} = ['UNKNOWN', $s];
+        }
+        else
+        {
+            $result->{$host} = ['OK', 'OK'];
+            shift @s; 
+            while (@s)
+            {
+                my ($use, $partition) = (split /\s+/, shift @s)[-2..-1];
+                my $t = defined $t{$partition} ? $t{$partition} :
+                    defined $t{ALL} ? $t{ALL} : 101;
+
+                chop $use;
+                next if $use <= $t;
+                $s = "$partition ($use\% > $t\%)";
+                if ($result->{$host}[0] eq 'OK')
+                {
+                    $result->{$host}[1] = $s;
+                }
+                else
+                {
+                    $result->{$host}[1] .= "\n$s";
+                }
+                $result->{$host}[0] = 'ERROR';
+            }
+        }
+  
+        $obj = (); delete $r->{$host};
+    }
+}

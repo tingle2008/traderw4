@@ -1,0 +1,52 @@
+# Reference:  http://twiki.corp.yahoo.com/view/Yst/SimonAdminGuide
+# Example:  http://74.6.191.41:4080//Aggregator/data?format=text&mode=current&cluster=idpproxy_yahoo1
+
+CONF: /home/seco/releases/clients/simon.tcl
+CIDF: /home/seco/releases/clients/clusterAccess.tcl
+PORT: 4080
+DATA: Aggregator/data
+MODE: 'format=text&mode=current'
+
+GREED: 3
+#  where
+#   0: return with errors for one ID for one metric
+#   1: return with errors for each ID for one metric
+#   2: return with errors for one ID for each metric
+#   3: return with errors for each ID for each metric
+
+# "special" variable that may be called by EVAL:
+# $cluster: name of the current cluster
+
+EVAL:
+
+  'W+C/*/0':
+    -
+      pretest: '$cluster eq "idpproxy_jp1" && $1 eq "yahoojp"'
+      test: '{QPS} > 3000 || {QPS} < 100'
+    -
+      pretest: '$cluster eq "idpproxy_tw1" && $1 eq "yahootw"'
+      test: '{QPS} > 600 || {QPS} < 30'
+    -
+      pretest: '$cluster eq "idpproxy_krs" && $1 eq "yahookr"'
+      test: '{QPS} > 250 || {QPS} < 10'
+    -
+      pretest: '$cluster eq "idpproxy_hk2" && $1 eq "yahoohk"'
+      test: '{QPS} > 320 || {QPS} < 20'
+    -
+      pretest: '$cluster eq "idpproxy_sg1" && $1 eq "yahoosg"'
+      test: '{QPS} > 45 || {QPS} < 1'
+    -
+      pretest: '$cluster eq "idpproxy_sg1" && $1 eq "yahoomy"'
+      test: '{QPS} > 15 || {QPS} < 0.1'
+    -
+      pretest: '$cluster eq "idpproxy_in2" && $1 eq "yahooin"'
+      test: '{QPS} > 40 || {QPS} < 0.5'
+    -
+      pretest: '$cluster eq "idpproxy_ird" && $1 eq "yahoouk"'
+      test: '{QPS} > 400 || {QPS} < 15'
+    -
+      pretest: '$cluster eq "idpproxy_ird" && $1 eq "yahoofr"'
+      test: '{QPS} > 120 || {QPS} < 2.5'
+    -
+      pretest: '$cluster eq "idpproxy_ird" && $1 eq "yahoode"'
+      test: '{QPS} > 55 || {QPS} < 2'

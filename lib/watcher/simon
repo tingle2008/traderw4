@@ -1,0 +1,432 @@
+#
+# Input parameters:
+#
+#  a YAML config file that contains the following keys:
+#
+#   CIDF:  path of client ID mapping
+#   CONF:  path of config for cluster-aggregator mapping
+#   PORT:  aggregator web UI port
+#   DATA:  aggregator data directory
+#   MODE:  data retrieval mode
+#   EVAL:  tests indexed by metrics
+#
+#  Optionally :
+#
+#   GREED: level (default 3) of watcher "greediness", where value may be
+#
+#   0: return with errors for one ID for one metric
+#   1: return with errors for each ID for one metric
+#   2: return with errors for one ID for each metric
+#   3: return with errors for each ID for each metric
+#
+# States:
+#
+#   OK:
+#     - no error found
+#
+#   WARNING:
+#     - data polluted by pulled/rogue nodes
+#     - aggregator is not defined
+#
+#   UNKNOWN:
+#     - aggregator does not respond
+#     - aggregator response contains no data
+#
+#   ERROR:
+#     - cluster is empty
+#     - see EVAL in config
+#
+# Reference:  http://twiki.corp.yahoo.com/view/Yst/SimonAdminGuide
+# Example:  http://74.6.191.41:4080//Aggregator/data?format=text&mode=current&cluster=idpproxy_yahoo1
+#
+use strict;
+use YAML::Syck;
+use LWP;
+
+# closure variables
+
+my %compress; # nodes to be compressed as range
+my $greed;    # greediness
+my %nodes;    # nodes that are in WARNING condition
+my %data;     # processed simon aggregator data
+my %test;     # rewritten tests
+my %msg;      # error or warning messages
+
+return sub
+{
+    my ($result,$params,@clusters)=@_;
+
+    return unless -f $params && @clusters;
+
+    ## load parameters
+
+    my $p = YAML::Syck::LoadFile ($params);
+
+    my $cidf = $p->{CIDF}; ## path of client ID mapping
+    my $conf = $p->{CONF}; ## path of config for cluster-aggregator mapping 
+    my $port = $p->{PORT}; ## aggregator web UI port
+    my $data = $p->{DATA}; ## aggregator data directory
+    my $mode = $p->{MODE}; ## data retrieval mode
+    my $test = $p->{EVAL}; ## tests indexed by metrics
+    my $fh;
+
+    return unless defined $conf && defined $port && defined $data
+        && defined $mode && defined $test && ref $test eq 'HASH'
+        && open $fh, $conf;
+
+    ## load simon config
+
+    my %simon = map { $_ => 0 } @clusters;
+    map { $simon{$1} = $2 if /^\s*set\s+simon\s*\(\s*(\S+)\s*\)\s+(\S+)\s*$/
+        && defined $simon{$1} } <$fh>;
+    close $fh;
+
+    return unless %simon;
+
+    ## load client id mapping
+
+    return unless open $fh, $cidf;
+
+    my %clientid;
+    while (<$fh>)
+    {   
+        next unless /^registerIdpClient\s+([a-z][a-z0-9]*)\s+(\d+)/;
+        $clientid{$2} = $1;
+    }
+    close $fh;
+
+    ## gather metrics required by EVAL
+
+    my %reportItem;
+
+    for my $metric (keys %$test)
+    {
+        my ($m, @keys) = split '\/', $metric;
+
+        $reportItem{$m} = \@keys;
+        if (ref $test->{$metric} ne 'ARRAY')
+        {
+            warn "$metric: must be ARRAY\n";
+            delete $test->{$metric}; 
+            next;
+        } 
+
+        for (my $i = 0; $i < @{$test->{$metric}}; $i ++)
+        {
+            my $t = $test->{$metric}[$i];
+
+            for my $key (keys %$t)
+            { 
+                if ($key ne 'test' && $key ne 'pretest')
+                {
+                    warn "$metric: [$i] invalid key '$key'\n";
+                    delete $test->{$metric}[$i]{$key};
+                    next;
+                }
+
+                while ($t->{$key} =~ /\{([\w\d]+\+[\w\d]+)\}/g)
+                {
+                    $reportItem{$1} = [] unless defined $reportItem{$1};
+                }
+            }
+        }
+    }
+
+    map { $mode .= "&reportItem=$_" } keys %reportItem;
+
+    return unless %reportItem;
+
+    ## set "greediness" of watcher
+
+    $greed = $p->{GREED};
+    $greed = 3 unless defined $greed && $greed =~ /^[0-3]$/;
+
+    ## process each target
+
+    for my $cluster (@clusters)
+    { 
+        %compress = (); %nodes = (); %data = (); %msg = ();
+
+        ## warn if aggregator is not defined in config
+
+        my $server = $simon{$cluster};
+
+        unless ($server)
+        {
+            $result->{$cluster} = ['WARNING', "not defined in $conf"];
+            next;
+        }
+
+        ## alert if cluster is empty
+
+        my %cluster = map { $_ => 1 } w4Range::expand_range ('%'.$cluster);
+
+        unless (%cluster)
+        {
+            $result->{$cluster} = ['ERROR', 'empty (or undefined) cluster!'];
+            next;
+        }
+
+        ## retrieve simon data
+
+        my $url = "http://$server:$port/$data?cluster=$cluster&$mode"; 
+
+        my $agent = LWP::UserAgent->new;
+        $agent->timeout (5);
+        my $request = HTTP::Request->new (GET => $url);
+        my $response = $agent->request ($request);
+
+        unless ($response->is_success)
+        {
+            $result->{$cluster} = ['UNKNOWN', $response->message];
+            next;
+        }
+
+        ## alert if response contains no data
+
+        my @response;
+        map { push @response, $_ if $_ !~ /^@/ && $_ ne '.' }
+            split /\n/, $response->content;
+        $response = ();
+
+        unless (@response)
+        {
+            $result->{$cluster} = ['UNKNOWN', "$url contains no metric data"];
+            next;
+        } 
+
+        ## index data by metrics, and record data and index for each metric 
+
+        while (@response) 
+        {
+            my @r = split /\s+/, shift @response;
+            next unless @r;
+
+            ## get metric name
+
+            my $check = $r[1] eq 'N' ? 1 : 0;
+            my $translate = $r[1] eq 'C' ? 1 : 0;
+            my $metric = join '+', splice @r, 0, 2;
+
+            my @keys;
+
+            ## get keys
+
+            while (@r)
+            {
+                my $key = shift @r;
+                last if $key eq ':'; 
+                push @keys, $key;
+            }
+
+            $keys[0] = $clientid{$keys[0]}
+                if $translate && defined $clientid{$keys[0]};
+
+            next unless @r;
+
+            if ($metric =~ s/^#//) ## map index name to the array index
+            {
+                my $i = 0;
+                $data{$metric}{index} = +{ map { $_ => $i ++ } @r };
+                $data{$metric}{data} = {};
+                $data{$metric}{keys} = \@keys;
+            }
+            elsif (@keys) ## store each line of data as an array indexed by keys
+            {
+                my $next = 0;
+                $nodes{$keys[0]} = 1 if $check; 
+
+                for (my $i = 0; $i < @keys; $i++)
+                {
+                    my $k = $reportItem{$metric}[$i];
+
+                    last unless defined $k;
+                    next if $k eq '*' || $k eq $keys[$i];
+                    $next = 1; ## filter out unwanted data
+                    last;
+                }
+
+                next if $next;
+
+                my $key = pop @keys;
+                my $data = $data{$metric}{data};
+
+                for my $key (@keys)
+                {
+                    $data->{$key} = {} unless defined $data->{$key};
+                    $data = $data->{$key};
+                }
+
+                $data->{$key} = \@r;
+            }
+            else
+            {
+                $data{$metric}{data} = \@r;
+            }
+        }
+
+        ## WARN of rogue and pulled nodes
+
+        my %all = map { $_ => 1 } w4Range::expand_range ('%'.$cluster.':ALL');
+        my (@pulled, @rogue);
+
+        if (%nodes)
+        {
+            for my $node (sort keys %nodes)
+            {
+                next if $cluster{$node};
+                if ($all{$node})
+                {
+                    push @pulled, $node;
+                    next;
+                }
+                push @rogue, $node;
+            } 
+
+            my $rogue = 'not in %'.$cluster.':ALL';
+            my $pulled = 'pulled but app up' ;
+
+            $msg{$pulled} = w4Range::compress_range (\@pulled) if @pulled;
+            $msg{$rogue} = w4Range::compress_range (\@rogue) if @rogue;
+
+            if (%msg)
+            {
+                my $msg = YAML::Syck::Dump \%msg;
+                chop $msg;
+                $msg =~ s/^--- \n//;
+                $msg =~ s/\n/ | /;
+                $result->{$cluster} = ['WARNING', $msg];
+                %msg = ();
+            }
+
+            %nodes = map { $_ => 1 } @rogue, @pulled;
+        }
+
+        ## process each metric in EVAL against data
+
+        for my $metric (keys %$test)
+        {
+            my ($m, @keys) = split '\/', $metric;
+
+            my $delta = defined $data{$metric}{keys} ? 
+                @{$data{$metric}{keys}} - @keys : 0;
+
+            if ($delta > 0)
+            {
+                map { push @keys, '*' } 1 .. $delta;
+            }
+            elsif ($delta < 0) 
+            {
+                map { pop @keys } 1 .. -$delta;
+            }
+
+            next unless defined $data{$m};
+            _evil ($cluster, $test->{$metric}, $m, \@keys, 0, $data{$m}{data});
+            last if %msg && $greed == 1;
+        }
+
+        if (%msg)
+        {
+            map { $$_ = w4Range::compress_range ($$_) . ', ' } values %compress;
+            my $msg = YAML::Syck::Dump \%msg;
+            chop $msg;
+            $msg =~ s/^--- \n//;
+            $msg =~ s/\n(?=\w)/|/g;
+            $msg =~ s/["\n]//g;
+            chop $msg; chop $msg;
+            $result->{$cluster} = ['ERROR', $msg];
+        } 
+        elsif (! $result->{$cluster})
+        {
+            $result->{$cluster} = ['OK', 'OK'];
+        }
+    }
+
+    %compress = (); %nodes = (); %data = (); %test = (); %msg = ();
+};
+
+sub _evil
+{
+    my ($cluster, $test, $metric, $keys, $i, $line) = @_;
+
+    return if @$keys && $nodes{$keys->[0]} || %msg && ! $greed % 2;
+
+    if (ref $line eq 'ARRAY' && @$line)
+    {
+        for my $test (@$test)  ## rewrite each test and eval
+        {
+            next if defined $test->{pretest} && ! _rewrite_and_eval
+                ($cluster, $test->{pretest}, $metric, $keys, $line);
+
+            next unless defined $test->{test} && _rewrite_and_eval
+                ($cluster, $test->{test}, $metric, $keys, $line);
+
+            ## record ERROR
+
+            my $t = $test->{test};
+
+            if (@$keys)
+            {
+                push @{$msg{$metric}{$t}}, $keys->[0];
+                $compress{$msg{$metric}{$t}} = \ $msg{$metric}{$t};
+            }
+            else
+            {
+                $msg{$metric} .= "$t, ";
+            }
+        }
+    } 
+
+    return unless ref $line eq 'HASH';
+
+    my $key = $keys->[$i];
+
+    if ($key ne '*')
+    {   
+        _evil ($cluster, $test, $metric, $keys, $i+1, $line->{$key});
+        return;
+    }   
+
+    for my $key (keys %$line)
+    {
+        $keys->[$i] = $key;
+        _evil ($cluster, $test, $metric, $keys, $i+1, $line->{$key});
+    }
+
+    $keys->[$i] = '*';
+
+    return;
+}
+
+sub _rewrite_and_eval
+{
+    my ($cluster, $test, $metric, $keys, $line) = @_;
+
+    return 0 unless defined $test;
+
+    $test =~ s/\{\$([0-9]+)\}/\{$keys->[$1-1]\}/g; ## rewrite $1, $2, etc.
+    $test =~ s/\$([0-9]+)\b/\'$keys->[$1-1]\'/g;   ## no '' around if {}
+    $test =~ s/\$cluster\b/'$cluster'/g; ## rewrite special variable $cluster
+
+    while ($test =~ /
+        \{ ([\w\d]+\+[\w\d]+) \}
+        ( (?:\{ [\w\d]+\})* )  (?=\{ [\w\d]+ \})
+        \{ ([\w\d]+) \}
+    /gx)
+    {
+        my $d = $data{$1}{data};
+        return 0 unless defined $d;
+
+        my $i = $data{$1}{index}{$3};
+        return 0 unless defined $i;
+
+        my $v = eval '$d->' . $2 . "[$i]";
+        return 0 unless defined $v;
+
+        $test =~ s/\{[\w\d]+\+[\w\d]+\}(?:\{[\w\d]+\})+/$v/gx;
+    }
+
+    $test =~ s/\{([\w\d]+)\}/$line->[$data{$metric}{index}{$1}]/g;
+
+    return eval $test;
+}

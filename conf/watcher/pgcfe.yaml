@@ -1,0 +1,27 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: /home/watcher/w4/lib/conf/pgcfe.yaml
+QUERY_COMMAND_TIMEOUT: 120
+
+FREQUENCY: 60
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [UNKNOWN]
+    BATCH: 3
+    START: 180
+    STOP: 600
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp 'pgcfe (http:8083) down' cluster-ops-pager-1 (STATE)]
+  -
+    STATUS: [UNKNOWN]
+    BATCH: 3
+    START: 600
+    STOP: 1200
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp 'pgcfe (http:8083) down' cluster-ops-pager-2 (STATE)]
+  -
+    STATUS: [UNKNOWN]
+    BATCH: 3
+    START: 1400
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -ns -csv cluster -mp 'pgcfe (http:8083) down' cluster-ops-pager-3 (STATE)]

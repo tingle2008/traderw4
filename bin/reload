@@ -1,0 +1,3 @@
+#!/bin/sh
+
+/home/watcher/w4/bin/scripts/w4svc reload $@

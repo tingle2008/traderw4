@@ -1,0 +1,62 @@
+#!/usr/bin/perl -w
+
+package w4Range;
+use warnings 'all';
+use strict;
+
+my $rd;
+{
+    require File::Basename;
+    require File::Spec;
+
+    my $name=File::Spec->rel2abs($0);
+    $rd=File::Basename::dirname($name);
+    $rd=~s/\/?bin$//;
+}
+require "$rd/bin/w4Range.pm";
+sub expand_range
+{
+    return Seco::Range::expand_range(@_);
+     
+}
+sub compress_range
+{
+    Seco::Range::compress_range(@_);
+}
+
+
+
+1;
+
+
+package main;
+
+use warnings 'all';
+use strict;
+use File::Basename;
+use File::Spec;
+use Data::Dumper;
+
+
+my $rootdir;
+BEGIN
+{
+    my $name=File::Spec->rel2abs($0);
+    $rootdir=dirname($name);
+    $rootdir=~s/\/?bin$//;
+    die if ! defined $rootdir or $rootdir!~m{/};
+
+}
+
+die "usage: $0 watchercmd \"params\" host" if @ARGV!=3;
+
+my ($watchercmd,$params,$host)=@ARGV;
+
+my $ref=do "$rootdir/lib/watcher/$watchercmd";
+die $@ if $@;
+die "$!" if ! defined $ref;
+die  if ref $ref ne 'CODE';
+
+my $results={};
+&$ref($results,$params, $host);
+print Dumper($results);

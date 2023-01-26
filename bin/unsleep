@@ -1,0 +1,3 @@
+#!/bin/sh
+
+/home/watcher/w4/bin/scripts/sleep -s 0 $@

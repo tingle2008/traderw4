@@ -1,0 +1,5 @@
+TEST:
+  PORT: 12345
+  QUERY: 'nobody stat -c %Y /service/sb-oracle-rrd/log/main/current'
+  ERROR:
+    _NOT_: - ['^(\d+)$', "time - $1 < 300"]

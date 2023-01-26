@@ -1,0 +1,15 @@
+QUERY_COMMAND: ping
+QUERY_COMMAND_PARAMS: ""
+QUERY_COMMAND_TIMEOUT: 600
+
+FREQUENCY: 600
+MAX_THREADS: 4
+MAX_RANGE: 100
+
+RESULT_HANDLER: "default"
+RESULT_HANDLER_PARAMS: >
+  -
+    STATUS: [ERROR]
+    START: 3600
+    REPEAT: 3600
+    EXEC: [/home/watcher/w4/bin/alert_by_csv -q -mp "unreachable for > 1 hour" -csv cluster watcherbot jon@yahoo-inc.com yst-breakfix@yahoo-inc.com (STATE)]
